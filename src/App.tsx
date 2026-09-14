@@ -23,6 +23,7 @@ import {
 import type { UserProfile } from './auth/userProfile';
 import { DonatoBrand } from './components/DonatoBrand';
 import { supabase } from './lib/supabase';
+import { downloadClosurePdf } from './lib/closurePdf';
 import './blind.css';
 
 type ClosureStatus =
@@ -73,6 +74,7 @@ type BlindComparison = {
     cuentaCorriente: boolean;
   };
   conceptosOk: boolean;
+  administrativoOk?: boolean;
   cajaOk: boolean;
   hayDiferencias: boolean;
   avisos?: { comprobantePendiente?: boolean };
@@ -124,8 +126,10 @@ type SigmaSnapshot = {
 type FullComparison = {
   coincidencias: BlindComparison['coincidencias'];
   conceptosOk: boolean;
+  administrativoOk?: boolean;
   cajaOk: boolean;
   hayDiferencias: boolean;
+  retirosDocumentados?: number;
   diferencias: {
     clover: number;
     payway: number;
@@ -910,7 +914,7 @@ export default function App({ profile, onSignOut }: Props) {
     const rows = [
       { label: 'Clover', ok: result.coincidencias.clover, detail: 'Cierre de lote Clover' },
       { label: 'Payway', ok: result.coincidencias.payway, detail: 'Cierre de lote Payway' },
-      { label: 'Retiros de efectivo', ok: result.coincidencias.retiros, detail: 'Tickets del depositario, supervisor y cierre' },
+      { label: 'Control administrativo RETI', ok: result.coincidencias.retiros, detail: 'Depositario + retiros de supervisores vs. RETI de la caja en Sigma' },
       { label: 'Cuenta corriente', ok: result.coincidencias.cuentaCorriente, detail: 'Documentación recibida' },
       { label: 'Resultado de caja', ok: result.cajaOk, detail: 'Faltante o sobrante neto' },
     ];
@@ -943,6 +947,23 @@ export default function App({ profile, onSignOut }: Props) {
   function closureMeta(item: ClosureRow) {
     const cut = displayTime(item.corte_hasta_at || item.sigma_snapshot_capturado_at);
     return `Caja ${item.caja_codigo || '—'} · Cierre ${item.cierre_nro}${cut ? ` · ${cut}` : ''}`;
+  }
+
+  async function downloadCurrentClosurePdf() {
+    if (!closure || !selectedJourney) return;
+    setActionError(null);
+    try {
+      let reportSnapshot = snapshot;
+      let reportComparison = fullComparison;
+      if (isApprover && !reportSnapshot && ['PENDIENTE_VALIDACION', 'CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(closure.estado)) {
+        const loaded = await loadFullSnapshot(closure.id);
+        if (loaded) { reportSnapshot = loaded.snapshot; reportComparison = loaded.comparison; }
+      }
+      await downloadClosurePdf({
+        closure: { fecha: closure.fecha, cierre_nro: closure.cierre_nro, estado: closure.estado, caja_codigo: closure.caja_codigo, usuario_sigma_codigo: closure.usuario_sigma_codigo, usuario_sigma_nombre: closure.usuario_sigma_nombre, corte_desde_at: closure.corte_desde_at, corte_hasta_at: closure.corte_hasta_at, sigma_snapshot_capturado_at: closure.sigma_snapshot_capturado_at },
+        declaration, blindComparison: blindComparison ?? closure.diferencias_supervisor ?? null, snapshot: reportSnapshot, fullComparison: reportComparison, generatedBy: profile.nombre || profile.email,
+      });
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'No se pudo generar el PDF'); }
   }
 
   if (!selectedJourney || !closure) {
@@ -1105,6 +1126,11 @@ export default function App({ profile, onSignOut }: Props) {
       <XCircle size={17} /> Cancelar cierre
     </button>
   ) : null}
+  {['PENDIENTE_VALIDACION', 'CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(closure.estado) ? (
+    <button className="refresh-button" type="button" onClick={() => void downloadCurrentClosurePdf()} disabled={busy}>
+      <FileText size={16} /> Descargar PDF
+    </button>
+  ) : null}
   <div className={closure.estado === 'BORRADOR' ? 'blind-badge' : `status-pill status-${closure.estado.toLowerCase()}`}>
     {closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}
   </div>
@@ -1234,7 +1260,7 @@ export default function App({ profile, onSignOut }: Props) {
               <div className="compare-list">
                 <div className="compare-row"><div><span>Clover Sigma</span><strong>{money.format(snapshot.cloverDirecto + snapshot.naranja)}</strong><small>Clover/QR Clover + Naranja</small></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.cloverFisico)}</strong><small className={fullComparison.coincidencias.clover ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.clover)} de diferencia</small></div></div>
                 <div className="compare-row"><div><span>Payway Sigma</span><strong>{money.format(snapshot.payway)}</strong></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.paywayFisico)}</strong><small className={fullComparison.coincidencias.payway ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.payway)} de diferencia</small></div></div>
-                <div className="compare-row"><div><span>RETI Sigma</span><strong>{money.format(snapshot.retiros)}</strong></div><div className="compare-arrow">→</div><div><span>Retiros documentados</span><strong>{money.format(efectivoRendido)}</strong><small className={fullComparison.coincidencias.retiros ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.retiros)} de diferencia administrativa</small></div></div>
+                <div className="compare-row"><div><span>RETI Sigma · Caja {closure.caja_codigo}</span><strong>{money.format(snapshot.retiros)}</strong><small>Control por cuenta de caja, sin importar qué usuario registró el RETI</small></div><div className="compare-arrow">→</div><div><span>Retiros documentados</span><strong>{money.format(totalDepositario + totalSupervisor)}</strong><small className={fullComparison.coincidencias.retiros ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.retiros)} de diferencia administrativa · no incluye efectivo de cierre</small></div></div>
                 <div className="compare-row"><div><span>Cuenta corriente Sigma</span><strong>{money.format(snapshot.cuentaCorriente)}</strong></div><div className="compare-arrow">→</div><div><span>Documentación recibida</span><strong>{money.format(totalCuentaCorrienteFisica)}</strong><small className={fullComparison.coincidencias.cuentaCorriente ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.cuentaCorriente)} de diferencia</small></div></div>
               </div>
               <div className="cash-result">

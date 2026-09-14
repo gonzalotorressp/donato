@@ -175,10 +175,20 @@ function saleDocumentKey(row) {
   return `${String(row.hora || '').trim()}|${String(row.cliente || '').trim()}|${saleAmount(row)}`;
 }
 
-export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo) {
+export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo, cajaCodigo = null) {
   const user = Number(usuarioCodigo);
   const relevantSales = sales.filter((row) => row.fecha === fecha && Number(row.usuario) === user);
   const relevantAccounting = accounting.filter((row) => row.fecha === fecha && Number(row.usuarioCodigo) === user);
+  const explicitCashAccount = Number(cajaCodigo) >= 1 && Number(cajaCodigo) <= 4
+    ? 1259 + Number(cajaCodigo)
+    : null;
+  const detectedCashAccount = Number(
+    relevantAccounting.find((row) =>
+      String(row.comprobanteCodigo || '').trim().toUpperCase() === 'CODO' &&
+      CASH_ACCOUNTS.has(Number(row.cuentaCodigo))
+    )?.cuentaCodigo || 0
+  ) || null;
+  const cashAccount = explicitCashAccount || detectedCashAccount;
 
   const snapshot = {
     venta: 0,
@@ -189,6 +199,7 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo) {
     cuentaCorriente: 0,
     pendienteContado: 0,
     retiros: 0,
+    cajaCodigo: cashAccount ? cashAccount - 1259 : null,
     ventasDocumentos: [],
     cuentaCorrienteDocumentos: [],
   };
@@ -236,13 +247,16 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo) {
     }
   }
 
-  // RETI sigue siendo una conciliación administrativa: 130 no tiene hora y el usuario
-  // registrador puede ser un supervisor. Se congela el acumulado disponible para poder
-  // trabajar por diferencia entre cortes sin duplicarlo en cierres posteriores.
-  for (const row of relevantAccounting) {
-    if (String(row.comprobanteCodigo || '').trim().toUpperCase() !== 'RETI') continue;
-    if (!CASH_ACCOUNTS.has(Number(row.cuentaCodigo))) continue;
-    snapshot.retiros += Math.abs(number(row.monto || row.haber || row.debe));
+  // RETI es un control administrativo de la CAJA, no del usuario que lo registró.
+  // En Sigma suele grabarlo un supervisor/encargado, por eso se busca por cuenta de caja.
+  // Como 130 no tiene hora, se conserva el acumulado y los cierres partidos trabajan por delta.
+  if (cashAccount) {
+    for (const row of accounting) {
+      if (row.fecha !== fecha) continue;
+      if (String(row.comprobanteCodigo || '').trim().toUpperCase() !== 'RETI') continue;
+      if (Number(row.cuentaCodigo) !== cashAccount) continue;
+      snapshot.retiros += Math.abs(number(row.monto || row.haber || row.debe));
+    }
   }
 
   for (const field of SNAPSHOT_NUMERIC_FIELDS) snapshot[field] = round2(snapshot[field]);
@@ -318,11 +332,13 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}) {
   const cierreEfectivo = round2(declaration?.cierreEfectivo);
   const totalDepositario = sumRows(declaration?.depositario);
   const totalSupervisor = sumRows(declaration?.retirosSupervisor);
+  const totalCashback = sumRows(declaration?.cashbacks);
   const totalCuentaCorriente = Array.isArray(declaration?.cuentasCorrientes)
     ? round2(declaration.cuentasCorrientes.reduce((sum, row) => sum + number(row?.importe), 0))
     : 0;
 
-  const efectivoRendido = round2(totalDepositario + totalSupervisor + cierreEfectivo);
+  const retirosDocumentados = round2(totalDepositario + totalSupervisor);
+  const efectivoRendido = round2(retirosDocumentados + cierreEfectivo);
   const cloverSigma = round2(number(snapshot?.cloverDirecto) + number(snapshot?.naranja));
   const paywaySigma = round2(snapshot?.payway);
   const retirosSigma = round2(snapshot?.retiros);
@@ -331,7 +347,7 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}) {
   const diferencias = {
     clover: round2(cloverFisico - cloverSigma),
     payway: round2(paywayFisico - paywaySigma),
-    retiros: round2(efectivoRendido - retirosSigma),
+    retiros: round2(retirosDocumentados - retirosSigma),
     cuentaCorriente: round2(totalCuentaCorriente - cuentaCorrienteSigma),
   };
 
@@ -349,18 +365,25 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}) {
     cuentaCorriente: Math.abs(diferencias.cuentaCorriente) <= toleranciaConceptos,
   };
 
-  const conceptosOk = Object.values(coincidencias).every(Boolean);
+  const conceptosOk = coincidencias.clover && coincidencias.payway && coincidencias.cuentaCorriente;
+  const administrativoOk = coincidencias.retiros;
   const cajaOk = Math.abs(diferenciaCaja) <= toleranciaCaja;
 
   return {
     coincidencias,
     conceptosOk,
+    administrativoOk,
     cajaOk,
-    hayDiferencias: !conceptosOk || !cajaOk,
+    hayDiferencias: !conceptosOk || !administrativoOk || !cajaOk,
     diferencias,
     diferenciaCaja,
     totalFisicoControlado,
     totalSigmaControlado,
+    retirosDocumentados,
+    totalDepositario,
+    totalSupervisor,
+    cierreEfectivo,
+    totalCashback,
     toleranciaConceptos,
     toleranciaCaja,
   };

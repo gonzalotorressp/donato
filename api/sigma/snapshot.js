@@ -56,13 +56,14 @@ export default async function handler(request, response) {
     }
 
     let snapshot = cierre.sigma_snapshot_tramo;
-    if (!hasSnapshot(snapshot)) {
+    const snapshotCajaActual = hasSnapshot(snapshot) && Number(snapshot?.cajaCodigo || 0) === Number(cierre.caja_codigo || 0);
+    if (!snapshotCajaActual) {
       // Compatibilidad con cierres creados antes de incorporar jornadas partidas.
       const [[sales, accounting], anterior] = await Promise.all([
         fetchTodayReports(cierre.fecha),
         getPreviousFrozenClosure(request, cierre),
       ]);
-      const acumulado = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo);
+      const acumulado = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo, cierre.caja_codigo);
       snapshot = diffUserSnapshots(acumulado, anterior?.sigma_snapshot_acumulado || {});
       const capturadoAt = cierre.corte_hasta_at || new Date().toISOString();
       cierre = await saveClosureSigmaCut(request, cierre.id, {

@@ -90,7 +90,7 @@ export default async function handler(request, response) {
       const editable = cierresUsuario.find((item) => ['BORRADOR', 'REVISION_SUPERVISOR'].includes(item.estado));
       const congelados = cierresUsuario.filter((item) => hasSnapshot(item.sigma_snapshot_acumulado));
       const ultimoCongelado = congelados.length ? congelados[congelados.length - 1] : null;
-      const acumuladoActual = buildUserSnapshot(sales, accounting, fecha, journey.usuarioCodigo);
+      const acumuladoActual = buildUserSnapshot(sales, accounting, fecha, journey.usuarioCodigo, journey.cajaCodigo);
       const tieneActividadNueva = !editable && hasNewSalesSinceSnapshot(
         acumuladoActual,
         ultimoCongelado?.sigma_snapshot_acumulado || {}

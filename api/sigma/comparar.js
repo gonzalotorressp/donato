@@ -46,13 +46,14 @@ export default async function handler(request, response) {
     }
 
     let snapshotTramo = cierre.sigma_snapshot_tramo;
-    if (!hasSnapshot(snapshotTramo)) {
+    const snapshotCajaActual = hasSnapshot(snapshotTramo) && Number(snapshotTramo?.cajaCodigo || 0) === Number(cierre.caja_codigo || 0);
+    if (!snapshotCajaActual) {
       const [[sales, accounting], anterior] = await Promise.all([
         fetchTodayReports(cierre.fecha),
         getPreviousFrozenClosure(request, cierre),
       ]);
 
-      const acumulado = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo);
+      const acumulado = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo, cierre.caja_codigo);
       const baseline = anterior?.sigma_snapshot_acumulado || {};
       snapshotTramo = diffUserSnapshots(acumulado, baseline);
       const capturadoAt = new Date().toISOString();
@@ -83,6 +84,7 @@ export default async function handler(request, response) {
       resultado: {
         coincidencias: comparison.coincidencias,
         conceptosOk: comparison.conceptosOk,
+        administrativoOk: comparison.administrativoOk,
         cajaOk: comparison.cajaOk,
         hayDiferencias: comparison.hayDiferencias,
         avisos: {
