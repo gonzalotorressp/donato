@@ -1,0 +1,289 @@
+name: Patch Sigma dashboard cache
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'Cache Sigma dashboard reports'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch cache
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # 1) Backend report cache + serialized fresh reads
+          p = Path('server/sigma.js')
+          s = p.read_text()
+          old = '''const SIGMA_MIN_INTERVAL_MS = Math.max(0, Number(process.env.SIGMA_MIN_INTERVAL_MS || 30000));
+let sigmaQueue = Promise.resolve();
+let lastSigmaCallAt = 0;
+'''
+          new = '''const SIGMA_MIN_INTERVAL_MS = Math.max(0, Number(process.env.SIGMA_MIN_INTERVAL_MS || 30000));
+let sigmaQueue = Promise.resolve();
+let lastSigmaCallAt = 0;
+const sigmaReportCache = new Map();
+'''
+          if old not in s:
+              raise SystemExit('sigma constants target not found')
+          s = s.replace(old, new, 1)
+
+          old = '''export function fetchSigmaReport(endpoint, fecha) {
+  return enqueueSigma(async () => {
+    const url = new URL(endpoint);
+    url.searchParams.set('fecdes', fecha);
+    url.searchParams.set('fechas', fecha);
+
+    const elapsed = Date.now() - lastSigmaCallAt;
+    const initialWait = lastSigmaCallAt ? Math.max(0, SIGMA_MIN_INTERVAL_MS - elapsed) : 0;
+    if (initialWait > 0) await sleep(initialWait);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(url, { headers: headers() });
+      lastSigmaCallAt = Date.now();
+
+      if (response.status === 429) {
+        const body = await response.text();
+        const retryMs = retryDelayFromSigma(body) ?? SIGMA_MIN_INTERVAL_MS;
+        if (attempt === 0) {
+          await sleep(Math.max(250, retryMs + 250));
+          continue;
+        }
+        throw new Error('Sigma está ocupado. Reintentá en unos segundos.');
+      }
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Sigma ${response.status}: ${body.slice(0, 800)}`);
+      }
+
+      const data = await response.json();
+      if (!Array.isArray(data)) throw new Error('Sigma no devolvió un array JSON');
+      return data;
+    }
+
+    throw new Error('No se pudo consultar Sigma');
+  });
+}
+
+export async function fetchTodayReports(fecha) {
+  const sales = await fetchSigmaReport(SALES_ENDPOINT, fecha);
+  const accounting = await fetchSigmaReport(ACCOUNTING_ENDPOINT, fecha);
+  return [sales, accounting];
+}
+'''
+          new = '''function sigmaCacheKey(endpoint, fecha) {
+  return `${endpoint}|${fecha}`;
+}
+
+function cachedSigmaReport(endpoint, fecha, maxAgeMs) {
+  if (!maxAgeMs) return null;
+  const cached = sigmaReportCache.get(sigmaCacheKey(endpoint, fecha));
+  if (!cached || Date.now() - cached.fetchedAt > maxAgeMs) return null;
+  return cached.data;
+}
+
+export function fetchSigmaReport(endpoint, fecha, options = {}) {
+  const maxAgeMs = Math.max(0, Number(options.maxAgeMs || 0));
+  const immediateCached = cachedSigmaReport(endpoint, fecha, maxAgeMs);
+  if (immediateCached) return Promise.resolve(immediateCached);
+
+  return enqueueSigma(async () => {
+    // Otra invocación pudo completar la misma consulta mientras ésta esperaba la cola.
+    const queuedCached = cachedSigmaReport(endpoint, fecha, maxAgeMs);
+    if (queuedCached) return queuedCached;
+
+    const url = new URL(endpoint);
+    url.searchParams.set('fecdes', fecha);
+    url.searchParams.set('fechas', fecha);
+
+    const elapsed = Date.now() - lastSigmaCallAt;
+    const initialWait = lastSigmaCallAt ? Math.max(0, SIGMA_MIN_INTERVAL_MS - elapsed) : 0;
+    if (initialWait > 0) await sleep(initialWait);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(url, { headers: headers() });
+      lastSigmaCallAt = Date.now();
+
+      if (response.status === 429) {
+        const body = await response.text();
+        const retryMs = retryDelayFromSigma(body) ?? SIGMA_MIN_INTERVAL_MS;
+        if (attempt === 0) {
+          await sleep(Math.max(250, retryMs + 250));
+          continue;
+        }
+        throw new Error('Sigma está ocupado. Reintentá en unos segundos.');
+      }
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Sigma ${response.status}: ${body.slice(0, 800)}`);
+      }
+
+      const data = await response.json();
+      if (!Array.isArray(data)) throw new Error('Sigma no devolvió un array JSON');
+      sigmaReportCache.set(sigmaCacheKey(endpoint, fecha), { fetchedAt: Date.now(), data });
+      return data;
+    }
+
+    throw new Error('No se pudo consultar Sigma');
+  });
+}
+
+export async function fetchTodayReports(fecha, options = {}) {
+  const maxAgeMs = Math.max(0, Number(options.maxAgeMs || 0));
+  const sales = await fetchSigmaReport(SALES_ENDPOINT, fecha, { maxAgeMs });
+  const accounting = await fetchSigmaReport(ACCOUNTING_ENDPOINT, fecha, { maxAgeMs });
+  return [sales, accounting];
+}
+'''
+          if old not in s:
+              raise SystemExit('sigma fetch target not found')
+          p.write_text(s.replace(old, new, 1))
+
+          # 2) Dashboard endpoint may reuse reports for 60 seconds.
+          p = Path('api/sigma/jornadas.js')
+          s = p.read_text()
+          old = '      fetchTodayReports(fecha),\n'
+          new = '      fetchTodayReports(fecha, { maxAgeMs: 60000 }),\n'
+          if old not in s:
+              raise SystemExit('jornadas fetch target not found')
+          p.write_text(s.replace(old, new, 1))
+
+          # 3) Browser/session cache: automatic dashboard reloads do not hit Sigma again.
+          p = Path('src/App.tsx')
+          s = p.read_text()
+          old = '''  async function loadDashboard() {
+    if (!supabase) return;
+    setLoadingDashboard(true);
+    setDashboardError(null);
+    try {
+      const headers = await authHeaders();
+      const [sigmaResponse, closureResponse] = await Promise.all([
+        fetch(`/api/sigma/jornadas?fecha=${today}`, { headers, cache: 'no-store' }),
+        supabase
+          .from('donato_cierres_caja')
+          .select(closureSelect)
+          .eq('fecha', today)
+          .order('usuario_sigma_nombre', { ascending: true })
+          .order('cierre_nro', { ascending: true }),
+      ]);
+
+      if (!sigmaResponse.ok) {
+        const body = await sigmaResponse.json().catch(() => ({}));
+        throw new Error(body.error || 'No se pudieron consultar las cajas de hoy');
+      }
+      if (closureResponse.error) throw new Error(closureResponse.error.message);
+
+      const sigmaData = await sigmaResponse.json();
+      setJourneys(Array.isArray(sigmaData.jornadas) ? sigmaData.jornadas : []);
+      setClosures((closureResponse.data ?? []) as unknown as ClosureRow[]);
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : 'No se pudo cargar la jornada');
+    } finally {
+      setLoadingDashboard(false);
+    }
+  }
+'''
+          new = '''  async function loadDashboard(forceSigma = false) {
+    if (!supabase) return;
+    setLoadingDashboard(true);
+    setDashboardError(null);
+    try {
+      const cacheKey = `donato:jornadas:${today}`;
+      const cacheMaxAgeMs = 60000;
+      let sigmaData: { jornadas?: Journey[] } | null = null;
+      let sigmaCacheAt = 0;
+
+      if (!forceSigma) {
+        try {
+          const raw = window.sessionStorage.getItem(cacheKey);
+          if (raw) {
+            const cached = JSON.parse(raw) as { at?: number; data?: { jornadas?: Journey[] } };
+            if (cached.at && cached.data && Date.now() - cached.at <= cacheMaxAgeMs) {
+              sigmaData = cached.data;
+              sigmaCacheAt = cached.at;
+            }
+          }
+        } catch {
+          // Si el cache local está dañado, se consulta Sigma normalmente.
+        }
+      }
+
+      const closurePromise = supabase
+        .from('donato_cierres_caja')
+        .select(closureSelect)
+        .eq('fecha', today)
+        .order('usuario_sigma_nombre', { ascending: true })
+        .order('cierre_nro', { ascending: true });
+
+      if (!sigmaData) {
+        const headers = await authHeaders();
+        const sigmaResponse = await fetch(`/api/sigma/jornadas?fecha=${today}`, { headers, cache: 'no-store' });
+        if (!sigmaResponse.ok) {
+          const body = await sigmaResponse.json().catch(() => ({}));
+          throw new Error(body.error || 'No se pudieron consultar las cajas de hoy');
+        }
+        sigmaData = await sigmaResponse.json();
+        sigmaCacheAt = Date.now();
+        try {
+          window.sessionStorage.setItem(cacheKey, JSON.stringify({ at: sigmaCacheAt, data: sigmaData }));
+        } catch {
+          // El cache es una optimización; la pantalla debe seguir funcionando sin él.
+        }
+      }
+
+      const closureResponse = await closurePromise;
+      if (closureResponse.error) throw new Error(closureResponse.error.message);
+      const closureRows = (closureResponse.data ?? []) as unknown as ClosureRow[];
+
+      // Si el cache del tablero es anterior a un corte ya congelado, no inventamos una
+      // segunda jornada pendiente hasta la próxima lectura real de Sigma.
+      const normalizedJourneys = (Array.isArray(sigmaData?.jornadas) ? sigmaData.jornadas : []).map((journey) => {
+        if (!sigmaCacheAt) return journey;
+        const latestFrozenAt = closureRows
+          .filter((item) => item.estado !== 'CANCELADO' && item.usuario_sigma_codigo === journey.usuarioCodigo)
+          .map((item) => item.sigma_snapshot_capturado_at ? new Date(item.sigma_snapshot_capturado_at).getTime() : 0)
+          .reduce((max, value) => Math.max(max, value), 0);
+        if (latestFrozenAt >= sigmaCacheAt) return { ...journey, tieneActividadNueva: false };
+        return journey;
+      });
+
+      setJourneys(normalizedJourneys);
+      setClosures(closureRows);
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : 'No se pudo cargar la jornada');
+    } finally {
+      setLoadingDashboard(false);
+    }
+  }
+'''
+          if old not in s:
+              raise SystemExit('App loadDashboard target not found')
+          s = s.replace(old, new, 1)
+
+          old = '''            <button className="refresh-button" onClick={() => void loadDashboard()} disabled={loadingDashboard}>
+              <RefreshCw size={16} /> Actualizar
+            </button>'''
+          new = '''            <button className="refresh-button" onClick={() => void loadDashboard(true)} disabled={loadingDashboard}>
+              <RefreshCw size={16} /> {loadingDashboard ? 'Actualizando…' : 'Actualizar'}
+            </button>'''
+          if old not in s:
+              raise SystemExit('App refresh button target not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/sigma.js api/sigma/jornadas.js src/App.tsx
+          git commit -m "Cache Sigma dashboard reports"
+          git push
