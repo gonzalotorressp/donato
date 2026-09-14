@@ -18,6 +18,10 @@ const SNAPSHOT_NUMERIC_FIELDS = [
   'retiros',
 ];
 
+const SIGMA_MIN_INTERVAL_MS = Math.max(0, Number(process.env.SIGMA_MIN_INTERVAL_MS || 30000));
+let sigmaQueue = Promise.resolve();
+let lastSigmaCallAt = 0;
+
 export function argentinaToday() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Argentina/Cordoba',
@@ -38,25 +42,63 @@ function headers() {
   };
 }
 
-export async function fetchSigmaReport(endpoint, fecha) {
-  const url = new URL(endpoint);
-  url.searchParams.set('fecdes', fecha);
-  url.searchParams.set('fechas', fecha);
-  const response = await fetch(url, { headers: headers() });
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Sigma ${response.status}: ${body.slice(0, 800)}`);
-  }
-  const data = await response.json();
-  if (!Array.isArray(data)) throw new Error('Sigma no devolvió un array JSON');
-  return data;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryDelayFromSigma(body) {
+  const match = String(body || '').match(/wait\s+(\d+)ms/i);
+  return match ? Number(match[1]) : null;
+}
+
+function enqueueSigma(task) {
+  const run = sigmaQueue.then(task, task);
+  sigmaQueue = run.catch(() => undefined);
+  return run;
+}
+
+export function fetchSigmaReport(endpoint, fecha) {
+  return enqueueSigma(async () => {
+    const url = new URL(endpoint);
+    url.searchParams.set('fecdes', fecha);
+    url.searchParams.set('fechas', fecha);
+
+    const elapsed = Date.now() - lastSigmaCallAt;
+    const initialWait = lastSigmaCallAt ? Math.max(0, SIGMA_MIN_INTERVAL_MS - elapsed) : 0;
+    if (initialWait > 0) await sleep(initialWait);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(url, { headers: headers() });
+      lastSigmaCallAt = Date.now();
+
+      if (response.status === 429) {
+        const body = await response.text();
+        const retryMs = retryDelayFromSigma(body) ?? SIGMA_MIN_INTERVAL_MS;
+        if (attempt === 0) {
+          await sleep(Math.max(250, retryMs + 250));
+          continue;
+        }
+        throw new Error('Sigma está ocupado. Reintentá en unos segundos.');
+      }
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Sigma ${response.status}: ${body.slice(0, 800)}`);
+      }
+
+      const data = await response.json();
+      if (!Array.isArray(data)) throw new Error('Sigma no devolvió un array JSON');
+      return data;
+    }
+
+    throw new Error('No se pudo consultar Sigma');
+  });
 }
 
 export async function fetchTodayReports(fecha) {
-  return Promise.all([
-    fetchSigmaReport(SALES_ENDPOINT, fecha),
-    fetchSigmaReport(ACCOUNTING_ENDPOINT, fecha),
-  ]);
+  const sales = await fetchSigmaReport(SALES_ENDPOINT, fecha);
+  const accounting = await fetchSigmaReport(ACCOUNTING_ENDPOINT, fecha);
+  return [sales, accounting];
 }
 
 function normalizedTime(value) {
