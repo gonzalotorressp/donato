@@ -307,3 +307,14 @@
   .topbar-closure-actions { justify-content: flex-start; }
   .header-cancel-button { width: 100%; }
 }
+
+
+.reti-compare-row > div:first-child { min-width: 0; }
+.reti-detail-list { margin-top: 12px; display: grid; gap: 8px; }
+.reti-detail-item { padding: 9px 10px; border: 1px solid #dfe6f0; border-radius: 10px; background: #f8fafc; }
+.reti-detail-item > div { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.reti-detail-item b { color: #183f82; font-size: .92rem; }
+.reti-detail-item span { color: #667085; font-size: .78rem; text-align: right; }
+.reti-detail-item small { display: block; margin-top: 4px; color: #667085; line-height: 1.25; }
+.reti-detail-empty { display: block; margin-top: 8px; color: #98a2b3; }
+@media (max-width: 720px) { .reti-detail-item > div { align-items: flex-start; flex-direction: column; gap: 2px; } .reti-detail-item span { text-align: left; } }

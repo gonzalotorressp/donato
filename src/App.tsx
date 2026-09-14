@@ -115,6 +115,15 @@ type SigmaSnapshot = {
   cuentaCorriente: number;
   pendienteContado: number;
   retiros: number;
+  retirosDocumentos?: Array<{
+    key?: string;
+    cuentaCodigo?: number | null;
+    usuarioCodigo?: number | null;
+    usuarioNombre?: string;
+    importe: number;
+    concepto?: string;
+    observacion?: string;
+  }>;
   cuentaCorrienteDocumentos: Array<{
     comprobante: string;
     clienteCodigo: string;
@@ -1260,7 +1269,7 @@ export default function App({ profile, onSignOut }: Props) {
               <div className="compare-list">
                 <div className="compare-row"><div><span>Clover Sigma</span><strong>{money.format(snapshot.cloverDirecto + snapshot.naranja)}</strong><small>Clover/QR Clover + Naranja</small></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.cloverFisico)}</strong><small className={fullComparison.coincidencias.clover ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.clover)} de diferencia</small></div></div>
                 <div className="compare-row"><div><span>Payway Sigma</span><strong>{money.format(snapshot.payway)}</strong></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.paywayFisico)}</strong><small className={fullComparison.coincidencias.payway ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.payway)} de diferencia</small></div></div>
-                <div className="compare-row"><div><span>RETI Sigma · Caja {closure.caja_codigo}</span><strong>{money.format(snapshot.retiros)}</strong><small>Control por cuenta de caja, sin importar qué usuario registró el RETI</small></div><div className="compare-arrow">→</div><div><span>Retiros documentados</span><strong>{money.format(totalDepositario + totalSupervisor)}</strong><small className={fullComparison.coincidencias.retiros ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.retiros)} de diferencia administrativa · no incluye efectivo de cierre</small></div></div>
+                <div className="compare-row reti-compare-row"><div><span>RETI Sigma · Caja {closure.caja_codigo}</span><strong>{money.format(snapshot.retiros)}</strong><small>Control por cuenta de caja, sin importar qué usuario registró el RETI</small>{snapshot.retirosDocumentos?.length ? <div className="reti-detail-list">{snapshot.retirosDocumentos.map((retiro, index) => <div className="reti-detail-item" key={retiro.key || `${index}-${retiro.importe}`}><div><b>{money.format(retiro.importe)}</b><span>{retiro.usuarioNombre || (retiro.usuarioCodigo ? `Usuario ${retiro.usuarioCodigo}` : 'Usuario no informado')}</span></div>{retiro.concepto ? <small>{retiro.concepto}</small> : null}{retiro.observacion ? <small>{retiro.observacion}</small> : null}</div>)}</div> : <small className="reti-detail-empty">Sigma no devolvió detalle individual de los RETI en el snapshot guardado.</small>}</div><div className="compare-arrow">→</div><div><span>Retiros documentados</span><strong>{money.format(totalDepositario + totalSupervisor)}</strong><small className={fullComparison.coincidencias.retiros ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.retiros)} de diferencia administrativa · no incluye efectivo de cierre</small></div></div>
                 <div className="compare-row"><div><span>Cuenta corriente Sigma</span><strong>{money.format(snapshot.cuentaCorriente)}</strong></div><div className="compare-arrow">→</div><div><span>Documentación recibida</span><strong>{money.format(totalCuentaCorrienteFisica)}</strong><small className={fullComparison.coincidencias.cuentaCorriente ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.cuentaCorriente)} de diferencia</small></div></div>
               </div>
               <div className="cash-result">

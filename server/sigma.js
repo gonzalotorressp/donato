@@ -202,6 +202,7 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo, cajaC
     cajaCodigo: cashAccount ? cashAccount - 1259 : null,
     ventasDocumentos: [],
     cuentaCorrienteDocumentos: [],
+    retirosDocumentos: [],
   };
 
   let cuentaCorrienteCandidata = 0;
@@ -255,7 +256,23 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo, cajaC
       if (row.fecha !== fecha) continue;
       if (String(row.comprobanteCodigo || '').trim().toUpperCase() !== 'RETI') continue;
       if (Number(row.cuentaCodigo) !== cashAccount) continue;
-      snapshot.retiros += Math.abs(number(row.monto || row.haber || row.debe));
+      const retiroImporte = Math.abs(number(row.monto || row.haber || row.debe));
+      snapshot.retiros += retiroImporte;
+      snapshot.retirosDocumentos.push({
+        key: [
+          Number(row.cuentaCodigo) || '',
+          Number(row.usuarioCodigo) || '',
+          retiroImporte,
+          String(row.concepto || '').trim(),
+          String(row.observacion || '').trim(),
+        ].join('|'),
+        cuentaCodigo: Number(row.cuentaCodigo) || null,
+        usuarioCodigo: Number(row.usuarioCodigo) || null,
+        usuarioNombre: String(row.usuarioNombre || '').trim(),
+        importe: round2(retiroImporte),
+        concepto: String(row.concepto || '').trim(),
+        observacion: String(row.observacion || '').trim(),
+      });
     }
   }
 
@@ -267,6 +284,7 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo, cajaC
 
   snapshot.ventasDocumentos.sort((a, b) => String(a.hora).localeCompare(String(b.hora)) || String(a.key).localeCompare(String(b.key)));
   snapshot.cuentaCorrienteDocumentos.sort((a, b) => String(a.hora).localeCompare(String(b.hora)) || String(a.key).localeCompare(String(b.key)));
+  snapshot.retirosDocumentos.sort((a, b) => Number(b.importe || 0) - Number(a.importe || 0) || String(a.usuarioNombre || '').localeCompare(String(b.usuarioNombre || '')));
   return snapshot;
 }
 
@@ -299,8 +317,10 @@ export function diffUserSnapshots(currentSnapshot, baselineSnapshot = {}) {
     cuentaCorriente: 0,
     pendienteContado: 0,
     retiros: 0,
+    cajaCodigo: current.cajaCodigo ?? baseline.cajaCodigo ?? null,
     ventasDocumentos: documentDifference(current.ventasDocumentos, baseline.ventasDocumentos),
     cuentaCorrienteDocumentos: documentDifference(current.cuentaCorrienteDocumentos, baseline.cuentaCorrienteDocumentos),
+    retirosDocumentos: documentDifference(current.retirosDocumentos, baseline.retirosDocumentos),
   };
 
   for (const field of SNAPSHOT_NUMERIC_FIELDS) {

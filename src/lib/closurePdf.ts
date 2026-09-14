@@ -250,6 +250,19 @@ export async function downloadClosurePdf(input: ClosurePdfInput) {
     tableRow('Efectivo', pesos.format(num(snapshot.efectivo)), pesos.format(efectivoFisico), pesos.format(efectivoFisico - num(snapshot.efectivo)));
     tableRow('Cuenta corriente', pesos.format(num(snapshot.cuentaCorriente)), pesos.format(cuentaCorrienteFisica), pesos.format(num(fullComparison.diferencias?.cuentaCorriente)));
     tableRow('RETI administrativo', pesos.format(num(snapshot.retiros)), pesos.format(retirosDocumentados), pesos.format(num(fullComparison.diferencias?.retiros)));
+    if (Array.isArray(snapshot.retirosDocumentos) && snapshot.retirosDocumentos.length) {
+      ensure(10);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(71, 84, 103);
+      doc.text('Detalle RETI Sigma', margin, y);
+      y += 5;
+      snapshot.retirosDocumentos.forEach((retiro: any) => {
+        const quien = retiro.usuarioNombre || (retiro.usuarioCodigo ? `Usuario ${retiro.usuarioCodigo}` : 'Usuario no informado');
+        const detalle = [quien, retiro.concepto, retiro.observacion].filter(Boolean).join(' · ');
+        tableRow(detalle || 'RETI', '', pesos.format(num(retiro.importe)), '');
+      });
+    }
 
     ensure(13);
     doc.setFillColor(238, 244, 255);
