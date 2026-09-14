@@ -21,9 +21,16 @@ jobs:
           from pathlib import Path
           p = Path('src/App.tsx')
           s = p.read_text()
-          old = '''          <div className={closure.estado === 'BORRADOR' ? 'blind-badge' : `status-pill status-${closure.estado.toLowerCase()}`}>
-            {closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}
-          </div>'''
+
+          marker = "          <div className={closure.estado === 'BORRADOR' ? 'blind-badge'"
+          start = s.find(marker)
+          if start < 0:
+              raise SystemExit('Header marker not found')
+          end_marker = "\n          </div>\n        </header>"
+          end = s.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('Header end not found')
+          end += len("\n          </div>")
           new = '''          <div className="topbar-closure-actions">
             {canEditDeclaration ? (
               <button className="cancel-closure-button header-cancel-button" type="button" onClick={() => void cancelClosure()} disabled={busy}>
@@ -34,19 +41,13 @@ jobs:
               {closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}
             </div>
           </div>'''
-          if old not in s:
-              raise SystemExit('Header target not found')
-          s = s.replace(old, new, 1)
-          old_bottom = '''                <div className="closure-actions">
-                  <button className="cancel-closure-button" type="button" onClick={() => void cancelClosure()} disabled={busy}><XCircle size={18} /> Cancelar cierre</button>
-                  <button className="primary-button close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
-                </div>'''
-          new_bottom = '''                <div className="closure-actions closure-actions-single">
-                  <button className="primary-button close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
-                </div>'''
-          if old_bottom not in s:
-              raise SystemExit('Bottom target not found')
-          s = s.replace(old_bottom, new_bottom, 1)
+          s = s[:start] + new + s[end:]
+
+          cancel_line = '                  <button className="cancel-closure-button" type="button" onClick={() => void cancelClosure()} disabled={busy}><XCircle size={18} /> Cancelar cierre</button>\n'
+          if cancel_line not in s:
+              raise SystemExit('Bottom cancel button not found')
+          s = s.replace(cancel_line, '', 1)
+          s = s.replace('                <div className="closure-actions">', '                <div className="closure-actions closure-actions-single">', 1)
           p.write_text(s)
 
           css = Path('src/blind.css')
