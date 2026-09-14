@@ -25,7 +25,14 @@ import { DonatoBrand } from './components/DonatoBrand';
 import { supabase } from './lib/supabase';
 import './blind.css';
 
-type ClosureStatus = 'BORRADOR' | 'REVISION_SUPERVISOR' | 'PENDIENTE_VALIDACION' | 'CERRADO' | 'AJUSTES_AUTORIZADOS' | 'AJUSTADO' | 'CANCELADO';
+type ClosureStatus =
+  | 'BORRADOR'
+  | 'REVISION_SUPERVISOR'
+  | 'PENDIENTE_VALIDACION'
+  | 'CERRADO'
+  | 'AJUSTES_AUTORIZADOS'
+  | 'AJUSTADO'
+  | 'CANCELADO';
 
 type Props = {
   profile: UserProfile;
@@ -37,6 +44,12 @@ type Journey = {
   usuarioCodigo: number;
   usuarioNombre: string;
   cajaCodigo: number | null;
+  ultimaVentaHora?: string | null;
+  cantidadVentas?: number;
+  tieneActividadNueva?: boolean;
+  proximoCierreNumero?: number;
+  cierreEditableId?: string | null;
+  cierreAnteriorId?: string | null;
 };
 
 type MoneyRow = { id: string; referencia: string; importe: number };
@@ -62,9 +75,7 @@ type BlindComparison = {
   conceptosOk: boolean;
   cajaOk: boolean;
   hayDiferencias: boolean;
-  avisos?: {
-    comprobantePendiente?: boolean;
-  };
+  avisos?: { comprobantePendiente?: boolean };
 };
 
 type ClosureRow = {
@@ -73,6 +84,7 @@ type ClosureRow = {
   usuario_sigma_codigo: number;
   usuario_sigma_nombre: string;
   caja_codigo: number;
+  cierre_nro: number;
   estado: ClosureStatus;
   supervisor_user_id: string;
   declaracion_ciega?: BlindDeclaration | null;
@@ -87,6 +99,9 @@ type ClosureRow = {
   cancelado_at?: string | null;
   cancelado_por?: string | null;
   cancelacion_motivo?: string | null;
+  corte_desde_at?: string | null;
+  corte_hasta_at?: string | null;
+  sigma_snapshot_capturado_at?: string | null;
 };
 
 type SigmaSnapshot = {
@@ -124,7 +139,12 @@ type FullComparison = {
   toleranciaCaja: number;
 };
 
-const money = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 2 });
+const money = new Intl.NumberFormat('es-AR', {
+  style: 'currency',
+  currency: 'ARS',
+  maximumFractionDigits: 2,
+});
+
 let nextId = 1;
 const rowId = () => `row-${Date.now()}-${nextId++}`;
 
@@ -144,20 +164,60 @@ function displayDate(date: string) {
   return `${day}/${month}/${year}`;
 }
 
-function NumberInput({ label, value, onChange, hint, disabled = false }: { label: string; value: number; onChange: (value: number) => void; hint?: string; disabled?: boolean }) {
+function displayTime(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Cordoba',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function NumberInput({
+  label,
+  value,
+  onChange,
+  hint,
+  disabled = false,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  hint?: string;
+  disabled?: boolean;
+}) {
   return (
     <label className="field">
       <span>{label}</span>
       <div className={`money-input ${disabled ? 'locked-input' : ''}`}>
         <span>$</span>
-        <input disabled={disabled} type="number" step="0.01" value={value || ''} onChange={(event) => onChange(Number(event.target.value) || 0)} />
+        <input
+          disabled={disabled}
+          type="number"
+          step="0.01"
+          value={value || ''}
+          onChange={(event) => onChange(Number(event.target.value) || 0)}
+        />
       </div>
       {hint ? <small>{hint}</small> : null}
     </label>
   );
 }
 
-function Metric({ label, value, tone = 'default', note }: { label: string; value: number; tone?: 'default' | 'warn'; note?: string }) {
+function Metric({
+  label,
+  value,
+  tone = 'default',
+  note,
+}: {
+  label: string;
+  value: number;
+  tone?: 'default' | 'warn';
+  note?: string;
+}) {
   return (
     <div className={`metric ${tone}`}>
       <span>{label}</span>
@@ -204,9 +264,42 @@ export default function App({ profile, onSignOut }: Props) {
 
   const isSupervisor = profile.rol === 'supervisor_caja' || profile.rol === 'administrador';
   const isApprover = profile.rol === 'encargado_donato' || profile.rol === 'administrador';
-  const roleLabel = profile.rol === 'supervisor_caja' ? 'Supervisor de Caja' : profile.rol === 'encargado_donato' ? 'Encargado Donato' : 'Administrador';
-  const canEditDeclaration = Boolean(closure && isSupervisor && ['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado));
+  const roleLabel = profile.rol === 'supervisor_caja'
+    ? 'Supervisor de Caja'
+    : profile.rol === 'encargado_donato'
+      ? 'Encargado Donato'
+      : 'Administrador';
+
+  const canEditDeclaration = Boolean(
+    closure && isSupervisor && ['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado)
+  );
   const firstCloseDone = Boolean(closure?.carga_ciega_cerrada_at);
+
+  const closureSelect = [
+    'id',
+    'fecha',
+    'usuario_sigma_codigo',
+    'usuario_sigma_nombre',
+    'caja_codigo',
+    'cierre_nro',
+    'estado',
+    'supervisor_user_id',
+    'declaracion_ciega',
+    'declaracion_ciega_inicial',
+    'carga_ciega_cerrada_at',
+    'revision_supervisor_count',
+    'revision_supervisor_at',
+    'diferencias_supervisor',
+    'conceptos_ok',
+    'caja_ok',
+    'correccion_motivo',
+    'cancelado_at',
+    'cancelado_por',
+    'cancelacion_motivo',
+    'corte_desde_at',
+    'corte_hasta_at',
+    'sigma_snapshot_capturado_at',
+  ].join(',');
 
   async function authHeaders() {
     if (!supabase) throw new Error('Supabase no está configurado');
@@ -216,8 +309,6 @@ export default function App({ profile, onSignOut }: Props) {
     return { Authorization: `Bearer ${token}` };
   }
 
-  const closureSelect = 'id,fecha,usuario_sigma_codigo,usuario_sigma_nombre,caja_codigo,estado,supervisor_user_id,declaracion_ciega,declaracion_ciega_inicial,carga_ciega_cerrada_at,revision_supervisor_count,revision_supervisor_at,diferencias_supervisor,conceptos_ok,caja_ok,correccion_motivo,cancelado_at,cancelado_por,cancelacion_motivo';
-
   async function loadDashboard() {
     if (!supabase) return;
     setLoadingDashboard(true);
@@ -226,7 +317,12 @@ export default function App({ profile, onSignOut }: Props) {
       const headers = await authHeaders();
       const [sigmaResponse, closureResponse] = await Promise.all([
         fetch(`/api/sigma/jornadas?fecha=${today}`, { headers, cache: 'no-store' }),
-        supabase.from('donato_cierres_caja').select(closureSelect).eq('fecha', today),
+        supabase
+          .from('donato_cierres_caja')
+          .select(closureSelect)
+          .eq('fecha', today)
+          .order('usuario_sigma_nombre', { ascending: true })
+          .order('cierre_nro', { ascending: true }),
       ]);
 
       if (!sigmaResponse.ok) {
@@ -250,17 +346,46 @@ export default function App({ profile, onSignOut }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today]);
 
-  const activeClosures = useMemo(() => closures.filter((item) => item.estado !== 'CANCELADO'), [closures]);
-  const closureByUser = useMemo(() => new Map(activeClosures.map((item) => [item.usuario_sigma_codigo, item])), [activeClosures]);
-  const pendingJourneys = useMemo(() => journeys.filter((journey) => !closureByUser.has(journey.usuarioCodigo)), [journeys, closureByUser]);
-  const inProgressClosures = useMemo(() => activeClosures.filter((item) => ['BORRADOR', 'REVISION_SUPERVISOR', 'PENDIENTE_VALIDACION'].includes(item.estado)), [activeClosures]);
-  const completedClosures = useMemo(() => activeClosures.filter((item) => ['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(item.estado)), [activeClosures]);
+  const activeClosures = useMemo(
+    () => closures.filter((item) => item.estado !== 'CANCELADO'),
+    [closures]
+  );
+
+  const editableByUser = useMemo(() => {
+    const map = new Map<number, ClosureRow>();
+    for (const item of activeClosures) {
+      if (['BORRADOR', 'REVISION_SUPERVISOR'].includes(item.estado)) {
+        map.set(item.usuario_sigma_codigo, item);
+      }
+    }
+    return map;
+  }, [activeClosures]);
+
+  const pendingJourneys = useMemo(
+    () => journeys.filter(
+      (journey) => journey.tieneActividadNueva === true && !editableByUser.has(journey.usuarioCodigo)
+    ),
+    [journeys, editableByUser]
+  );
+
+  const inProgressClosures = useMemo(
+    () => activeClosures.filter((item) => ['BORRADOR', 'REVISION_SUPERVISOR', 'PENDIENTE_VALIDACION'].includes(item.estado)),
+    [activeClosures]
+  );
+
+  const completedClosures = useMemo(
+    () => activeClosures.filter((item) => ['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(item.estado)),
+    [activeClosures]
+  );
 
   const total = (rows: MoneyRow[]) => rows.reduce((sum, row) => sum + Number(row.importe || 0), 0);
   const totalDepositario = total(declaration.depositario);
   const totalSupervisor = total(declaration.retirosSupervisor);
   const totalCashback = total(declaration.cashbacks);
-  const totalCuentaCorrienteFisica = declaration.cuentasCorrientes.reduce((sum, row) => sum + Number(row.importe || 0), 0);
+  const totalCuentaCorrienteFisica = declaration.cuentasCorrientes.reduce(
+    (sum, row) => sum + Number(row.importe || 0),
+    0
+  );
   const efectivoRendido = totalDepositario + totalSupervisor + declaration.cierreEfectivo;
 
   async function startPendingJourney(journey: Journey) {
@@ -281,7 +406,11 @@ export default function App({ profile, onSignOut }: Props) {
         .select(closureSelect)
         .single();
       if (error) throw new Error(error.message);
-      setSelectedJourney(journey);
+
+      setSelectedJourney({
+        ...journey,
+        proximoCierreNumero: Number((data as ClosureRow).cierre_nro || journey.proximoCierreNumero || 1),
+      });
       setClosure(data as ClosureRow);
       setDeclaration(blankDeclaration());
       setBlindComparison(null);
@@ -301,10 +430,17 @@ export default function App({ profile, onSignOut }: Props) {
       usuarioCodigo: item.usuario_sigma_codigo,
       usuarioNombre: item.usuario_sigma_nombre,
       cajaCodigo: item.caja_codigo || null,
+      tieneActividadNueva: false,
+      proximoCierreNumero: item.cierre_nro,
     };
+
     setSelectedJourney(journey);
     setClosure(item);
-    setDeclaration(item.declaracion_ciega && Object.keys(item.declaracion_ciega).length ? item.declaracion_ciega : blankDeclaration());
+    setDeclaration(
+      item.declaracion_ciega && Object.keys(item.declaracion_ciega).length
+        ? item.declaracion_ciega
+        : blankDeclaration()
+    );
     setBlindComparison(item.diferencias_supervisor ?? null);
     setSnapshot(null);
     setFullComparison(null);
@@ -313,7 +449,10 @@ export default function App({ profile, onSignOut }: Props) {
 
     if (item.estado === 'REVISION_SUPERVISOR') {
       await loadBlindComparison(item.id);
-    } else if (isApprover && ['PENDIENTE_VALIDACION', 'AJUSTES_AUTORIZADOS', 'AJUSTADO', 'CERRADO'].includes(item.estado)) {
+    } else if (
+      isApprover &&
+      ['PENDIENTE_VALIDACION', 'AJUSTES_AUTORIZADOS', 'AJUSTADO', 'CERRADO'].includes(item.estado)
+    ) {
       await loadFullSnapshot(item.id);
     }
   }
@@ -323,7 +462,11 @@ export default function App({ profile, onSignOut }: Props) {
     setActionError(null);
     try {
       const headers = await authHeaders();
-      const response = await fetch(`/api/sigma/comparar?cierreId=${encodeURIComponent(cierreId)}`, { headers, cache: 'no-store' });
+      const response = await fetch(`/api/sigma/comparar?cierreId=${encodeURIComponent(cierreId)}`, {
+        method: 'POST',
+        headers,
+        cache: 'no-store',
+      });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || 'No se pudo controlar el cierre');
       const result = body.resultado as BlindComparison;
@@ -343,7 +486,10 @@ export default function App({ profile, onSignOut }: Props) {
     setActionError(null);
     try {
       const headers = await authHeaders();
-      const response = await fetch(`/api/sigma/snapshot?cierreId=${encodeURIComponent(cierreId)}`, { headers, cache: 'no-store' });
+      const response = await fetch(`/api/sigma/snapshot?cierreId=${encodeURIComponent(cierreId)}`, {
+        headers,
+        cache: 'no-store',
+      });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || 'No se pudo consultar Sigma');
       setSnapshot(body.snapshot as SigmaSnapshot);
@@ -357,7 +503,11 @@ export default function App({ profile, onSignOut }: Props) {
     }
   }
 
-  function updateMoneyRows(key: 'depositario' | 'retirosSupervisor' | 'cashbacks', id: string, patch: Partial<MoneyRow>) {
+  function updateMoneyRows(
+    key: 'depositario' | 'retirosSupervisor' | 'cashbacks',
+    id: string,
+    patch: Partial<MoneyRow>
+  ) {
     setDeclaration((current) => ({
       ...current,
       [key]: current[key].map((row) => row.id === id ? { ...row, ...patch } : row),
@@ -365,17 +515,26 @@ export default function App({ profile, onSignOut }: Props) {
   }
 
   function addMoneyRow(key: 'depositario' | 'retirosSupervisor' | 'cashbacks') {
-    setDeclaration((current) => ({ ...current, [key]: [...current[key], { id: rowId(), referencia: '', importe: 0 }] }));
+    setDeclaration((current) => ({
+      ...current,
+      [key]: [...current[key], { id: rowId(), referencia: '', importe: 0 }],
+    }));
   }
 
   function removeMoneyRow(key: 'depositario' | 'retirosSupervisor' | 'cashbacks', id: string) {
-    setDeclaration((current) => ({ ...current, [key]: current[key].filter((row) => row.id !== id) }));
+    setDeclaration((current) => ({
+      ...current,
+      [key]: current[key].filter((row) => row.id !== id),
+    }));
   }
 
   function addCurrentAccount() {
     setDeclaration((current) => ({
       ...current,
-      cuentasCorrientes: [...current.cuentasCorrientes, { id: rowId(), comprobante: '', cliente: '', importe: 0 }],
+      cuentasCorrientes: [
+        ...current.cuentasCorrientes,
+        { id: rowId(), comprobante: '', cliente: '', importe: 0 },
+      ],
     }));
   }
 
@@ -399,28 +558,61 @@ export default function App({ profile, onSignOut }: Props) {
     }
 
     const retiroRows = [
-      ...declaration.depositario.filter((row) => row.importe > 0).map((row) => ({ cierre_id: cierreId, tipo: 'depositario', importe: row.importe, ticket_referencia: row.referencia || null, created_by: profile.userId })),
-      ...declaration.retirosSupervisor.filter((row) => row.importe > 0).map((row) => ({ cierre_id: cierreId, tipo: 'supervisor', importe: row.importe, ticket_referencia: row.referencia || null, created_by: profile.userId })),
-      ...(declaration.cierreEfectivo > 0 ? [{ cierre_id: cierreId, tipo: 'cierre', importe: declaration.cierreEfectivo, ticket_referencia: 'Cierre de caja', created_by: profile.userId }] : []),
+      ...declaration.depositario
+        .filter((row) => row.importe > 0)
+        .map((row) => ({
+          cierre_id: cierreId,
+          tipo: 'depositario',
+          importe: row.importe,
+          ticket_referencia: row.referencia || null,
+          created_by: profile.userId,
+        })),
+      ...declaration.retirosSupervisor
+        .filter((row) => row.importe > 0)
+        .map((row) => ({
+          cierre_id: cierreId,
+          tipo: 'supervisor',
+          importe: row.importe,
+          ticket_referencia: row.referencia || null,
+          created_by: profile.userId,
+        })),
+      ...(declaration.cierreEfectivo > 0
+        ? [{
+            cierre_id: cierreId,
+            tipo: 'cierre',
+            importe: declaration.cierreEfectivo,
+            ticket_referencia: 'Cierre de caja',
+            created_by: profile.userId,
+          }]
+        : []),
     ];
     if (retiroRows.length) {
       const { error } = await supabase.from('donato_cierre_retiros').insert(retiroRows);
       if (error) throw new Error(error.message);
     }
 
-    const cashbackRows = declaration.cashbacks.filter((row) => row.importe > 0).map((row) => ({ cierre_id: cierreId, importe: row.importe, referencia: row.referencia || null, created_by: profile.userId }));
+    const cashbackRows = declaration.cashbacks
+      .filter((row) => row.importe > 0)
+      .map((row) => ({
+        cierre_id: cierreId,
+        importe: row.importe,
+        referencia: row.referencia || null,
+        created_by: profile.userId,
+      }));
     if (cashbackRows.length) {
       const { error } = await supabase.from('donato_cierre_cashback').insert(cashbackRows);
       if (error) throw new Error(error.message);
     }
 
-    const ccRows = declaration.cuentasCorrientes.filter((row) => row.importe > 0 || row.comprobante).map((row) => ({
-      cierre_id: cierreId,
-      comprobante: row.comprobante || 'SIN NUMERO',
-      cliente_nombre: row.cliente || null,
-      importe: row.importe,
-      documentacion_recibida: true,
-    }));
+    const ccRows = declaration.cuentasCorrientes
+      .filter((row) => row.importe > 0 || row.comprobante)
+      .map((row) => ({
+        cierre_id: cierreId,
+        comprobante: row.comprobante || 'SIN NUMERO',
+        cliente_nombre: row.cliente || null,
+        importe: row.importe,
+        documentacion_recibida: true,
+      }));
     if (ccRows.length) {
       const { error } = await supabase.from('donato_cierre_cuentas_corrientes').insert(ccRows);
       if (error) throw new Error(error.message);
@@ -438,7 +630,11 @@ export default function App({ profile, onSignOut }: Props) {
     if (error) throw new Error(error.message);
   }
 
-  async function persistComparison(result: BlindComparison, finalStatus: ClosureStatus, extra: Record<string, unknown> = {}) {
+  async function persistComparison(
+    result: BlindComparison,
+    finalStatus: ClosureStatus,
+    extra: Record<string, unknown> = {}
+  ) {
     if (!supabase || !closure) return;
     const now = new Date().toISOString();
     const { error } = await supabase
@@ -478,29 +674,49 @@ export default function App({ profile, onSignOut }: Props) {
     if (error) throw new Error(error.message);
 
     await replaceDeclarationDetails(closure.id);
-    await writeAudit('PRIMER_CIERRE_SUPERVISOR', { declaracion: declaration });
+    await writeAudit('PRIMER_CIERRE_SUPERVISOR', {
+      cierre_nro: closure.cierre_nro,
+      declaracion: declaration,
+    });
 
-    const temporaryClosure: ClosureRow = {
-      ...closure,
+    setClosure((current) => current ? {
+      ...current,
       estado: 'REVISION_SUPERVISOR',
       declaracion_ciega: declaration,
       declaracion_ciega_inicial: declaration,
       carga_ciega_cerrada_at: now,
       revision_supervisor_count: 0,
-    };
-    setClosure(temporaryClosure);
+    } : current);
 
     const result = await loadBlindComparison(closure.id);
     if (!result) return;
 
     if (result.hayDiferencias) {
       await persistComparison(result, 'REVISION_SUPERVISOR');
-      await writeAudit('PRIMER_CONTROL_CON_DIFERENCIAS', { resultado: result });
-      setClosure((current) => current ? { ...current, estado: 'REVISION_SUPERVISOR', diferencias_supervisor: result, conceptos_ok: result.conceptosOk, caja_ok: result.cajaOk } : current);
+      await writeAudit('PRIMER_CONTROL_CON_DIFERENCIAS', {
+        cierre_nro: closure.cierre_nro,
+        resultado: result,
+      });
+      setClosure((current) => current ? {
+        ...current,
+        estado: 'REVISION_SUPERVISOR',
+        diferencias_supervisor: result,
+        conceptos_ok: result.conceptosOk,
+        caja_ok: result.cajaOk,
+      } : current);
     } else {
       await persistComparison(result, 'CERRADO');
-      await writeAudit('CIERRE_SIN_DIFERENCIAS', { resultado: result });
-      setClosure((current) => current ? { ...current, estado: 'CERRADO', diferencias_supervisor: result, conceptos_ok: true, caja_ok: true } : current);
+      await writeAudit('CIERRE_SIN_DIFERENCIAS', {
+        cierre_nro: closure.cierre_nro,
+        resultado: result,
+      });
+      setClosure((current) => current ? {
+        ...current,
+        estado: 'CERRADO',
+        diferencias_supervisor: result,
+        conceptos_ok: true,
+        caja_ok: true,
+      } : current);
       await loadDashboard();
     }
   }
@@ -529,6 +745,7 @@ export default function App({ profile, onSignOut }: Props) {
 
     await replaceDeclarationDetails(closure.id);
     await writeAudit('REVISION_SUPERVISOR', {
+      cierre_nro: closure.cierre_nro,
       revision: revisionNumber,
       antes: previousDeclaration,
       despues: declaration,
@@ -547,8 +764,15 @@ export default function App({ profile, onSignOut }: Props) {
     if (!result) return;
 
     const finalStatus: ClosureStatus = result.hayDiferencias ? 'PENDIENTE_VALIDACION' : 'CERRADO';
-    await persistComparison(result, finalStatus, { revision_supervisor_count: revisionNumber, revision_supervisor_at: now, correccion_motivo: revisionNote.trim() || null });
-    await writeAudit(result.hayDiferencias ? 'ENVIADO_A_VALIDACION' : 'CIERRE_CORREGIDO_SIN_DIFERENCIAS', { resultado: result, revision: revisionNumber });
+    await persistComparison(result, finalStatus, {
+      revision_supervisor_count: revisionNumber,
+      revision_supervisor_at: now,
+      correccion_motivo: revisionNote.trim() || null,
+    });
+    await writeAudit(
+      result.hayDiferencias ? 'ENVIADO_A_VALIDACION' : 'CIERRE_CORREGIDO_SIN_DIFERENCIAS',
+      { cierre_nro: closure.cierre_nro, resultado: result, revision: revisionNumber }
+    );
 
     setClosure((current) => current ? {
       ...current,
@@ -576,14 +800,19 @@ export default function App({ profile, onSignOut }: Props) {
 
   async function cancelClosure() {
     if (!supabase || !closure || !isSupervisor || !['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado)) return;
-    const confirmed = window.confirm('¿Cancelar este cierre? El cajero volverá a aparecer como pendiente y este intento quedará guardado como cancelado.');
+    const confirmed = window.confirm(
+      `¿Cancelar el Cierre ${closure.cierre_nro}? El cajero volverá a aparecer como pendiente y este intento quedará guardado como cancelado.`
+    );
     if (!confirmed) return;
 
     setBusy(true);
     setActionError(null);
     try {
       const now = new Date().toISOString();
-      const motivo = closure.estado === 'BORRADOR' ? 'Cancelado durante la carga del Supervisor' : 'Cancelado durante la revisión del Supervisor';
+      const motivo = closure.estado === 'BORRADOR'
+        ? 'Cancelado durante la carga del Supervisor'
+        : 'Cancelado durante la revisión del Supervisor';
+
       const { error } = await supabase
         .from('donato_cierres_caja')
         .update({
@@ -618,10 +847,18 @@ export default function App({ profile, onSignOut }: Props) {
       const now = new Date().toISOString();
       const { error } = await supabase
         .from('donato_cierres_caja')
-        .update({ estado: 'AJUSTES_AUTORIZADOS', encargado_user_id: profile.userId, validated_at: now })
+        .update({
+          estado: 'AJUSTES_AUTORIZADOS',
+          encargado_user_id: profile.userId,
+          validated_at: now,
+        })
         .eq('id', closure.id);
       if (error) throw new Error(error.message);
-      await writeAudit('AJUSTES_AUTORIZADOS', { validado_por: profile.userId });
+
+      await writeAudit('AJUSTES_AUTORIZADOS', {
+        cierre_nro: closure.cierre_nro,
+        validado_por: profile.userId,
+      });
       setClosure((current) => current ? { ...current, estado: 'AJUSTES_AUTORIZADOS' } : current);
       await loadDashboard();
     } catch (error) {
@@ -631,16 +868,38 @@ export default function App({ profile, onSignOut }: Props) {
     }
   }
 
-  function renderMoneyRows(key: 'depositario' | 'retirosSupervisor' | 'cashbacks', placeholder: string) {
+  function renderMoneyRows(
+    key: 'depositario' | 'retirosSupervisor' | 'cashbacks',
+    placeholder: string
+  ) {
     const rows = declaration[key];
     if (!rows.length) return <p className="empty-detail">Sin registros cargados.</p>;
     return (
       <div className="detail-rows">
         {rows.map((row) => (
           <div className="detail-row" key={row.id}>
-            <input disabled={!canEditDeclaration} className="text-input" placeholder={placeholder} value={row.referencia} onChange={(event) => updateMoneyRows(key, row.id, { referencia: event.target.value })} />
-            <div className={`money-input compact ${!canEditDeclaration ? 'locked-input' : ''}`}><span>$</span><input disabled={!canEditDeclaration} type="number" step="0.01" value={row.importe || ''} onChange={(event) => updateMoneyRows(key, row.id, { importe: Number(event.target.value) || 0 })} /></div>
-            {canEditDeclaration ? <button className="icon-button" type="button" onClick={() => removeMoneyRow(key, row.id)}><Trash2 size={16} /></button> : null}
+            <input
+              disabled={!canEditDeclaration}
+              className="text-input"
+              placeholder={placeholder}
+              value={row.referencia}
+              onChange={(event) => updateMoneyRows(key, row.id, { referencia: event.target.value })}
+            />
+            <div className={`money-input compact ${!canEditDeclaration ? 'locked-input' : ''}`}>
+              <span>$</span>
+              <input
+                disabled={!canEditDeclaration}
+                type="number"
+                step="0.01"
+                value={row.importe || ''}
+                onChange={(event) => updateMoneyRows(key, row.id, { importe: Number(event.target.value) || 0 })}
+              />
+            </div>
+            {canEditDeclaration ? (
+              <button className="icon-button" type="button" onClick={() => removeMoneyRow(key, row.id)}>
+                <Trash2 size={16} />
+              </button>
+            ) : null}
           </div>
         ))}
       </div>
@@ -660,7 +919,11 @@ export default function App({ profile, onSignOut }: Props) {
         {rows.map((row) => (
           <div key={row.label} className={`blind-check-row ${row.ok ? 'ok' : 'review'}`}>
             {row.ok ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}
-            <div><strong>{row.label}</strong><span>{row.ok ? 'Coincide' : 'Revisar: no coincide'}</span><small>{row.detail}</small></div>
+            <div>
+              <strong>{row.label}</strong>
+              <span>{row.ok ? 'Coincide' : 'Revisar: no coincide'}</span>
+              <small>{row.detail}</small>
+            </div>
           </div>
         ))}
       </div>
@@ -677,51 +940,114 @@ export default function App({ profile, onSignOut }: Props) {
     return 'Cerrado';
   }
 
+  function closureMeta(item: ClosureRow) {
+    const cut = displayTime(item.corte_hasta_at || item.sigma_snapshot_capturado_at);
+    return `Caja ${item.caja_codigo || '—'} · Cierre ${item.cierre_nro}${cut ? ` · ${cut}` : ''}`;
+  }
+
   if (!selectedJourney || !closure) {
     return (
       <div className="app-shell">
         <aside className="sidebar">
           <div className="sidebar-brand"><DonatoBrand /></div>
-          <nav><button className="nav-item active"><ClipboardCheck size={18} /> Cierre de caja</button><button className="nav-item" disabled><Clock3 size={18} /> Historial</button><button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button></nav>
-          <div className="sidebar-user"><span>{roleLabel}</span><strong>{profile.nombre || profile.email}</strong><button onClick={onSignOut}><LogOut size={16} /> Salir</button></div>
+          <nav>
+            <button className="nav-item active"><ClipboardCheck size={18} /> Cierre de caja</button>
+            <button className="nav-item" disabled><Clock3 size={18} /> Historial</button>
+            <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
+          </nav>
+          <div className="sidebar-user">
+            <span>{roleLabel}</span>
+            <strong>{profile.nombre || profile.email}</strong>
+            <button onClick={onSignOut}><LogOut size={16} /> Salir</button>
+          </div>
         </aside>
+
         <main className="workspace">
           <header className="topbar">
-            <div><p className="eyebrow">CIERRES DE HOY</p><h1>Cajas del {displayDate(today)}</h1><p>Se muestran sólo los cajeros con actividad de venta del día.</p></div>
-            <button className="refresh-button" onClick={() => void loadDashboard()} disabled={loadingDashboard}><RefreshCw size={16} /> Actualizar</button>
+            <div>
+              <p className="eyebrow">CIERRES DE HOY</p>
+              <h1>Cajas del {displayDate(today)}</h1>
+              <p>Un cajero puede tener más de un cierre si su jornada se corta y luego vuelve a operar.</p>
+            </div>
+            <button className="refresh-button" onClick={() => void loadDashboard()} disabled={loadingDashboard}>
+              <RefreshCw size={16} /> Actualizar
+            </button>
           </header>
 
-          <div className="blind-notice"><LockKeyhole size={22} /><div><strong>Control ciego</strong><p>El Supervisor carga primero lo recibido físicamente. Los importes de Sigma permanecen ocultos durante todo el control del Supervisor.</p></div></div>
+          <div className="blind-notice">
+            <LockKeyhole size={22} />
+            <div>
+              <strong>Control ciego por tramo de jornada</strong>
+              <p>Cada cierre congela Sigma en ese momento. Las ventas posteriores generan automáticamente un nuevo cierre pendiente para el mismo cajero.</p>
+            </div>
+          </div>
+
           {dashboardError ? <div className="error-banner">{dashboardError}</div> : null}
 
           <section className="panel dashboard-panel">
-            <div className="panel-heading"><div><p className="eyebrow">PENDIENTES</p><h2>Cajas pendientes de cierre</h2></div><EyeOff size={22} /></div>
-            {loadingDashboard ? <div className="empty-state"><Clock3 /><div><strong>Consultando Sigma…</strong><p>Buscando cajeros con ventas de hoy.</p></div></div> : pendingJourneys.length ? (
+            <div className="panel-heading">
+              <div><p className="eyebrow">PENDIENTES</p><h2>Cajas pendientes de cierre</h2></div>
+              <EyeOff size={22} />
+            </div>
+
+            {loadingDashboard ? (
+              <div className="empty-state"><Clock3 /><div><strong>Consultando Sigma…</strong><p>Buscando ventas todavía no incluidas en un cierre.</p></div></div>
+            ) : pendingJourneys.length ? (
               <div className="cashier-list">
                 {pendingJourneys.map((journey) => (
-                  <button key={journey.usuarioCodigo} className="cashier-card" onClick={() => void startPendingJourney(journey)} disabled={!isSupervisor || busy}>
+                  <button
+                    key={`${journey.usuarioCodigo}-${journey.proximoCierreNumero || 1}`}
+                    className="cashier-card"
+                    onClick={() => void startPendingJourney(journey)}
+                    disabled={!isSupervisor || busy}
+                  >
                     <div className="cashier-avatar">{journey.usuarioNombre.slice(0, 1)}</div>
-                    <div><strong>{journey.usuarioNombre}</strong><span>{journey.cajaCodigo ? `Caja ${journey.cajaCodigo} · ` : ''}Usuario Sigma {journey.usuarioCodigo}</span></div>
+                    <div>
+                      <strong>{journey.usuarioNombre}</strong>
+                      <span>
+                        {journey.cajaCodigo ? `Caja ${journey.cajaCodigo} · ` : ''}
+                        Cierre {journey.proximoCierreNumero || 1}
+                        {journey.ultimaVentaHora ? ` · última venta ${journey.ultimaVentaHora}` : ''}
+                      </span>
+                    </div>
                     <div className="cashier-state pending">Pendiente</div>
                   </button>
                 ))}
               </div>
-            ) : <div className="success-box"><CheckCircle2 /><div><strong>No hay cajas pendientes</strong><p>Todos los cajeros con ventas de hoy ya tienen un cierre iniciado o finalizado.</p></div></div>}
+            ) : (
+              <div className="success-box"><CheckCircle2 /><div><strong>No hay cajas pendientes</strong><p>Todas las ventas registradas hasta ahora están incluidas en un cierre iniciado o sellado.</p></div></div>
+            )}
           </section>
 
-          {inProgressClosures.length ? <section className="panel dashboard-panel">
-            <div className="panel-heading"><div><p className="eyebrow">EN CURSO</p><h2>Cierres iniciados hoy</h2></div><Clock3 size={22} /></div>
-            <div className="cashier-list">
-              {inProgressClosures.map((item) => <button key={item.id} className="cashier-card" onClick={() => void openExistingClosure(item)}><div className="cashier-avatar">{item.usuario_sigma_nombre.slice(0, 1)}</div><div><strong>{item.usuario_sigma_nombre}</strong><span>Caja {item.caja_codigo || '—'} · Usuario Sigma {item.usuario_sigma_codigo}</span></div><div className={`cashier-state ${item.estado !== 'BORRADOR' ? 'review' : ''}`}>{statusLabel(item)}</div></button>)}
-            </div>
-          </section> : null}
+          {inProgressClosures.length ? (
+            <section className="panel dashboard-panel">
+              <div className="panel-heading"><div><p className="eyebrow">EN CURSO</p><h2>Cierres iniciados o en validación</h2></div><Clock3 size={22} /></div>
+              <div className="cashier-list">
+                {inProgressClosures.map((item) => (
+                  <button key={item.id} className="cashier-card" onClick={() => void openExistingClosure(item)}>
+                    <div className="cashier-avatar">{item.usuario_sigma_nombre.slice(0, 1)}</div>
+                    <div><strong>{item.usuario_sigma_nombre}</strong><span>{closureMeta(item)}</span></div>
+                    <div className={`cashier-state ${item.estado !== 'BORRADOR' ? 'review' : ''}`}>{statusLabel(item)}</div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
-          {completedClosures.length ? <section className="panel dashboard-panel compact-panel">
-            <div className="panel-heading"><div><p className="eyebrow">COMPLETADOS HOY</p><h2>Cajas cerradas</h2></div><CheckCircle2 size={22} /></div>
-            <div className="cashier-list">
-              {completedClosures.map((item) => <button key={item.id} className="cashier-card completed" onClick={() => void openExistingClosure(item)}><div className="cashier-avatar">{item.usuario_sigma_nombre.slice(0, 1)}</div><div><strong>{item.usuario_sigma_nombre}</strong><span>Caja {item.caja_codigo || '—'} · Usuario Sigma {item.usuario_sigma_codigo}</span></div><div className="cashier-state done">{statusLabel(item)}</div></button>)}
-            </div>
-          </section> : null}
+          {completedClosures.length ? (
+            <section className="panel dashboard-panel compact-panel">
+              <div className="panel-heading"><div><p className="eyebrow">COMPLETADOS HOY</p><h2>Cierres sellados</h2></div><CheckCircle2 size={22} /></div>
+              <div className="cashier-list">
+                {completedClosures.map((item) => (
+                  <button key={item.id} className="cashier-card completed" onClick={() => void openExistingClosure(item)}>
+                    <div className="cashier-avatar">{item.usuario_sigma_nombre.slice(0, 1)}</div>
+                    <div><strong>{item.usuario_sigma_nombre}</strong><span>{closureMeta(item)}</span></div>
+                    <div className="cashier-state done">{statusLabel(item)}</div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </main>
       </div>
     );
@@ -730,91 +1056,220 @@ export default function App({ profile, onSignOut }: Props) {
   const visibleBlindResult = blindComparison ?? closure.diferencias_supervisor ?? null;
   const isSupervisorReview = closure.estado === 'REVISION_SUPERVISOR' && visibleBlindResult;
   const isWaitingValidation = closure.estado === 'PENDIENTE_VALIDACION';
+  const cutFrom = displayTime(closure.corte_desde_at);
+  const cutTo = displayTime(closure.corte_hasta_at || closure.sigma_snapshot_capturado_at);
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand"><DonatoBrand /></div>
-        <nav><button className="nav-item active"><ClipboardCheck size={18} /> Cierre de caja</button><button className="nav-item" disabled><Clock3 size={18} /> Historial</button><button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button></nav>
-        <div className="sidebar-user"><span>{roleLabel}</span><strong>{profile.nombre || profile.email}</strong><button onClick={onSignOut}><LogOut size={16} /> Salir</button></div>
+        <nav>
+          <button className="nav-item active"><ClipboardCheck size={18} /> Cierre de caja</button>
+          <button className="nav-item" disabled><Clock3 size={18} /> Historial</button>
+          <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
+        </nav>
+        <div className="sidebar-user">
+          <span>{roleLabel}</span>
+          <strong>{profile.nombre || profile.email}</strong>
+          <button onClick={onSignOut}><LogOut size={16} /> Salir</button>
+        </div>
       </aside>
 
       <main className="workspace">
-        <button className="back-button" onClick={() => { setSelectedJourney(null); setClosure(null); setBlindComparison(null); setSnapshot(null); setFullComparison(null); void loadDashboard(); }}><ArrowLeft size={17} /> Volver a cajas</button>
+        <button
+          className="back-button"
+          onClick={() => {
+            setSelectedJourney(null);
+            setClosure(null);
+            setBlindComparison(null);
+            setSnapshot(null);
+            setFullComparison(null);
+            void loadDashboard();
+          }}
+        >
+          <ArrowLeft size={17} /> Volver a cajas
+        </button>
+
         <header className="topbar">
-          <div><p className="eyebrow">CIERRE DE CAJA</p><h1>{selectedJourney.usuarioNombre} · {selectedJourney.cajaCodigo ? `Caja ${selectedJourney.cajaCodigo}` : 'Caja por detectar'}</h1><p>{displayDate(selectedJourney.fecha)} · Usuario Sigma {selectedJourney.usuarioCodigo}</p></div>
-          <div className={closure.estado === 'BORRADOR' ? 'blind-badge' : `status-pill status-${closure.estado.toLowerCase()}`}>{closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}</div>
+          <div>
+            <p className="eyebrow">CIERRE DE CAJA · CIERRE {closure.cierre_nro}</p>
+            <h1>{selectedJourney.usuarioNombre} · {selectedJourney.cajaCodigo ? `Caja ${selectedJourney.cajaCodigo}` : 'Caja por detectar'}</h1>
+            <p>
+              {displayDate(selectedJourney.fecha)} · Usuario Sigma {selectedJourney.usuarioCodigo}
+              {cutFrom || cutTo ? ` · tramo ${cutFrom || 'inicio'}–${cutTo || 'en curso'}` : ''}
+            </p>
+          </div>
+          <div className={closure.estado === 'BORRADOR' ? 'blind-badge' : `status-pill status-${closure.estado.toLowerCase()}`}>
+            {closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}
+          </div>
         </header>
 
-        {closure.estado === 'BORRADOR' ? <div className="blind-notice"><EyeOff size={22} /><div><strong>Control ciego activo</strong><p>Cargá únicamente lo que recibiste del cajero. No se muestran importes de venta, medios de pago, retiros ni cuenta corriente de Sigma.</p></div></div> : null}
-        {isSupervisorReview ? <div className="review-notice"><AlertTriangle size={22} /><div><strong>Revisá el cierre antes de confirmarlo</strong><p>El primer control detectó diferencias. Se indica qué concepto revisar, pero no se muestran importes de Sigma ni montos de diferencia. Podés corregir tu carga y volver a cerrar la caja.</p></div></div> : null}
-        {isWaitingValidation && !isApprover ? <div className="waiting-box"><ShieldCheck size={20} /> El segundo control todavía presenta diferencias. El cierre fue enviado al Encargado Donato para validación.</div> : null}
-        {closure.estado === 'CERRADO' && !isApprover ? <div className="success-box"><CheckCircle2 /><div><strong>Caja cerrada</strong><p>El cierre quedó dentro de los criterios de control configurados.</p></div></div> : null}
+        {closure.estado === 'BORRADOR' ? (
+          <div className="blind-notice"><EyeOff size={22} /><div><strong>Control ciego activo</strong><p>Cargá únicamente lo recibido para este tramo. No se muestran importes de Sigma.</p></div></div>
+        ) : null}
+        {isSupervisorReview ? (
+          <div className="review-notice"><AlertTriangle size={22} /><div><strong>Revisá el cierre antes de confirmarlo</strong><p>El primer control detectó diferencias. El corte de Sigma ya quedó congelado, por lo que ventas posteriores no modificarán este cierre.</p></div></div>
+        ) : null}
+        {isWaitingValidation && !isApprover ? (
+          <div className="waiting-box"><ShieldCheck size={20} /> El segundo control todavía presenta diferencias. Este cierre quedó sellado y fue enviado al Encargado; una jornada posterior puede abrir un nuevo cierre.</div>
+        ) : null}
+        {closure.estado === 'CERRADO' && !isApprover ? (
+          <div className="success-box"><CheckCircle2 /><div><strong>Cierre {closure.cierre_nro} finalizado</strong><p>Las ventas posteriores, si las hubiera, aparecerán en un nuevo cierre pendiente.</p></div></div>
+        ) : null}
         {actionError ? <div className="error-banner">{actionError}</div> : null}
 
-        {isApprover && snapshot && ['PENDIENTE_VALIDACION', 'AJUSTES_AUTORIZADOS', 'AJUSTADO', 'CERRADO'].includes(closure.estado) ? <section className="summary-strip reveal-animation"><Metric label="Venta Sigma" value={snapshot.venta} /><Metric label="Efectivo Sigma" value={snapshot.efectivo} /><Metric label="Cuenta corriente Sigma" value={snapshot.cuentaCorriente} /><Metric label="Comprobantes pendientes" value={snapshot.pendienteContado} tone={snapshot.pendienteContado ? 'warn' : 'default'} /></section> : null}
+        {isApprover && snapshot && ['PENDIENTE_VALIDACION', 'AJUSTES_AUTORIZADOS', 'AJUSTADO', 'CERRADO'].includes(closure.estado) ? (
+          <section className="summary-strip reveal-animation">
+            <Metric label={`Venta Sigma · Cierre ${closure.cierre_nro}`} value={snapshot.venta} />
+            <Metric label="Efectivo Sigma" value={snapshot.efectivo} />
+            <Metric label="Cuenta corriente Sigma" value={snapshot.cuentaCorriente} />
+            <Metric label="Comprobantes pendientes" value={snapshot.pendienteContado} tone={snapshot.pendienteContado ? 'warn' : 'default'} />
+          </section>
+        ) : null}
 
         <div className={isApprover && snapshot && fullComparison ? 'content-grid' : 'blind-form-grid'}>
           <section className="panel physical-panel">
-            <div className="panel-heading"><div><p className="eyebrow">DATOS DEL CIERRE</p><h2>{closure.estado === 'BORRADOR' ? 'Cargá lo recibido del cajero' : canEditDeclaration ? 'Revisá y corregí si corresponde' : 'Datos informados por el Supervisor'}</h2></div>{canEditDeclaration ? <ShieldCheck size={22} /> : <LockKeyhole size={22} />}</div>
-
-            <div className="form-section"><h3><CreditCard size={18} /> Cierres de terminales</h3><div className="two-cols"><NumberInput disabled={!canEditDeclaration} label="Clover" value={declaration.cloverFisico} onChange={(value) => setDeclaration((current) => ({ ...current, cloverFisico: value }))} hint="Importe del cierre de lote" /><NumberInput disabled={!canEditDeclaration} label="Payway" value={declaration.paywayFisico} onChange={(value) => setDeclaration((current) => ({ ...current, paywayFisico: value }))} hint="Importe del cierre de lote" /></div></div>
-
-            <div className="form-section"><div className="section-title-row"><h3><ReceiptText size={18} /> Tickets del depositario</h3>{canEditDeclaration ? <button className="add-row-button" type="button" onClick={() => addMoneyRow('depositario')}><Plus size={15} /> Agregar</button> : null}</div>{renderMoneyRows('depositario', 'Nº ticket / referencia')}<div className="inline-total"><span>Total entregado al depositario</span><strong>{money.format(totalDepositario)}</strong></div></div>
-
-            <div className="form-section"><div className="section-title-row"><h3><Banknote size={18} /> Retiros realizados por supervisores</h3>{canEditDeclaration ? <button className="add-row-button" type="button" onClick={() => addMoneyRow('retirosSupervisor')}><Plus size={15} /> Agregar</button> : null}</div>{renderMoneyRows('retirosSupervisor', 'Supervisor / referencia')}</div>
-
-            <div className="form-section"><h3><Banknote size={18} /> Efectivo de cierre</h3><NumberInput disabled={!canEditDeclaration} label="Efectivo recibido al cerrar la caja" value={declaration.cierreEfectivo} onChange={(value) => setDeclaration((current) => ({ ...current, cierreEfectivo: value }))} /><div className="inline-total"><span>Total efectivo rendido</span><strong>{money.format(efectivoRendido)}</strong></div></div>
-
-            <div className="form-section"><div className="section-title-row"><h3><WalletCards size={18} /> Cashback entregado</h3>{canEditDeclaration ? <button className="add-row-button" type="button" onClick={() => addMoneyRow('cashbacks')}><Plus size={15} /> Agregar</button> : null}</div>{renderMoneyRows('cashbacks', 'Ticket / terminal / referencia')}<div className="inline-total"><span>Total cashback informado</span><strong>{money.format(totalCashback)}</strong></div></div>
-
-            <div className="form-section"><div className="section-title-row"><h3><FileText size={18} /> Facturas en cuenta corriente recibidas</h3>{canEditDeclaration ? <button className="add-row-button" type="button" onClick={addCurrentAccount}><Plus size={15} /> Agregar</button> : null}</div>{declaration.cuentasCorrientes.length ? <div className="cc-rows">{declaration.cuentasCorrientes.map((row) => <div className="cc-row" key={row.id}><input disabled={!canEditDeclaration} className="text-input" placeholder="Comprobante" value={row.comprobante} onChange={(event) => updateCurrentAccount(row.id, { comprobante: event.target.value })} /><input disabled={!canEditDeclaration} className="text-input" placeholder="Cliente" value={row.cliente} onChange={(event) => updateCurrentAccount(row.id, { cliente: event.target.value })} /><div className={`money-input compact ${!canEditDeclaration ? 'locked-input' : ''}`}><span>$</span><input disabled={!canEditDeclaration} type="number" value={row.importe || ''} onChange={(event) => updateCurrentAccount(row.id, { importe: Number(event.target.value) || 0 })} /></div>{canEditDeclaration ? <button className="icon-button" onClick={() => setDeclaration((current) => ({ ...current, cuentasCorrientes: current.cuentasCorrientes.filter((item) => item.id !== row.id) }))}><Trash2 size={16} /></button> : null}</div>)}</div> : <p className="empty-detail">Sin documentación de cuenta corriente cargada.</p>}<div className="inline-total"><span>Total cuenta corriente declarada</span><strong>{money.format(totalCuentaCorrienteFisica)}</strong></div></div>
-
-            {closure.estado === 'REVISION_SUPERVISOR' && canEditDeclaration ? <div className="form-section"><label className="field"><span>Observación de la revisión (opcional)</span><textarea className="review-textarea" value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} placeholder="Ej.: se corrigió un ticket cargado con importe incorrecto." /></label></div> : null}
-
-            {canEditDeclaration ? <>
-              {firstCloseDone ? <p className="close-help">Este es el segundo control. Si después de revisarlo siguen existiendo diferencias, el cierre pasará al Encargado Donato.</p> : <p className="close-help">Al cerrar, el sistema hará el primer control sin mostrarte los importes esperados de Sigma.</p>}
-              <div className="closure-actions">
-                <button className="cancel-closure-button" type="button" onClick={() => void cancelClosure()} disabled={busy}><XCircle size={18} /> Cancelar cierre</button>
-                <button className="primary-button close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">DATOS DEL CIERRE {closure.cierre_nro}</p>
+                <h2>{closure.estado === 'BORRADOR' ? 'Cargá lo recibido del cajero' : canEditDeclaration ? 'Revisá y corregí si corresponde' : 'Datos informados por el Supervisor'}</h2>
               </div>
-            </> : null}
+              {canEditDeclaration ? <ShieldCheck size={22} /> : <LockKeyhole size={22} />}
+            </div>
+
+            <div className="form-section">
+              <h3><CreditCard size={18} /> Cierres de terminales</h3>
+              <div className="two-cols">
+                <NumberInput disabled={!canEditDeclaration} label="Clover" value={declaration.cloverFisico} onChange={(value) => setDeclaration((current) => ({ ...current, cloverFisico: value }))} hint="Importe del cierre de lote" />
+                <NumberInput disabled={!canEditDeclaration} label="Payway" value={declaration.paywayFisico} onChange={(value) => setDeclaration((current) => ({ ...current, paywayFisico: value }))} hint="Importe del cierre de lote" />
+              </div>
+            </div>
+
+            <div className="form-section">
+              <div className="section-title-row">
+                <h3><ReceiptText size={18} /> Tickets del depositario</h3>
+                {canEditDeclaration ? <button className="add-row-button" type="button" onClick={() => addMoneyRow('depositario')}><Plus size={15} /> Agregar</button> : null}
+              </div>
+              {renderMoneyRows('depositario', 'Nº ticket / referencia')}
+              <div className="inline-total"><span>Total entregado al depositario</span><strong>{money.format(totalDepositario)}</strong></div>
+            </div>
+
+            <div className="form-section">
+              <div className="section-title-row">
+                <h3><Banknote size={18} /> Retiros realizados por supervisores</h3>
+                {canEditDeclaration ? <button className="add-row-button" type="button" onClick={() => addMoneyRow('retirosSupervisor')}><Plus size={15} /> Agregar</button> : null}
+              </div>
+              {renderMoneyRows('retirosSupervisor', 'Supervisor / referencia')}
+            </div>
+
+            <div className="form-section">
+              <h3><Banknote size={18} /> Efectivo de cierre</h3>
+              <NumberInput disabled={!canEditDeclaration} label="Efectivo recibido al cerrar la caja" value={declaration.cierreEfectivo} onChange={(value) => setDeclaration((current) => ({ ...current, cierreEfectivo: value }))} />
+              <div className="inline-total"><span>Total efectivo rendido</span><strong>{money.format(efectivoRendido)}</strong></div>
+            </div>
+
+            <div className="form-section">
+              <div className="section-title-row">
+                <h3><WalletCards size={18} /> Cashback entregado</h3>
+                {canEditDeclaration ? <button className="add-row-button" type="button" onClick={() => addMoneyRow('cashbacks')}><Plus size={15} /> Agregar</button> : null}
+              </div>
+              {renderMoneyRows('cashbacks', 'Ticket / terminal / referencia')}
+              <div className="inline-total"><span>Total cashback informado</span><strong>{money.format(totalCashback)}</strong></div>
+            </div>
+
+            <div className="form-section">
+              <div className="section-title-row">
+                <h3><FileText size={18} /> Facturas en cuenta corriente recibidas</h3>
+                {canEditDeclaration ? <button className="add-row-button" type="button" onClick={addCurrentAccount}><Plus size={15} /> Agregar</button> : null}
+              </div>
+              {declaration.cuentasCorrientes.length ? (
+                <div className="cc-rows">
+                  {declaration.cuentasCorrientes.map((row) => (
+                    <div className="cc-row" key={row.id}>
+                      <input disabled={!canEditDeclaration} className="text-input" placeholder="Comprobante" value={row.comprobante} onChange={(event) => updateCurrentAccount(row.id, { comprobante: event.target.value })} />
+                      <input disabled={!canEditDeclaration} className="text-input" placeholder="Cliente" value={row.cliente} onChange={(event) => updateCurrentAccount(row.id, { cliente: event.target.value })} />
+                      <div className={`money-input compact ${!canEditDeclaration ? 'locked-input' : ''}`}>
+                        <span>$</span>
+                        <input disabled={!canEditDeclaration} type="number" value={row.importe || ''} onChange={(event) => updateCurrentAccount(row.id, { importe: Number(event.target.value) || 0 })} />
+                      </div>
+                      {canEditDeclaration ? <button className="icon-button" onClick={() => setDeclaration((current) => ({ ...current, cuentasCorrientes: current.cuentasCorrientes.filter((item) => item.id !== row.id) }))}><Trash2 size={16} /></button> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="empty-detail">Sin documentación de cuenta corriente cargada.</p>}
+              <div className="inline-total"><span>Total cuenta corriente declarada</span><strong>{money.format(totalCuentaCorrienteFisica)}</strong></div>
+            </div>
+
+            {closure.estado === 'REVISION_SUPERVISOR' && canEditDeclaration ? (
+              <div className="form-section">
+                <label className="field">
+                  <span>Observación de la revisión (opcional)</span>
+                  <textarea className="review-textarea" value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} placeholder="Ej.: se corrigió un ticket cargado con importe incorrecto." />
+                </label>
+              </div>
+            ) : null}
+
+            {canEditDeclaration ? (
+              <>
+                {firstCloseDone
+                  ? <p className="close-help">Este es el segundo control del Cierre {closure.cierre_nro}. Si siguen existiendo diferencias, pasa al Encargado Donato.</p>
+                  : <p className="close-help">Al cerrar se congela el tramo de Sigma. Todo movimiento posterior quedará para el próximo cierre del cajero.</p>}
+                <div className="closure-actions">
+                  <button className="cancel-closure-button" type="button" onClick={() => void cancelClosure()} disabled={busy}><XCircle size={18} /> Cancelar cierre</button>
+                  <button className="primary-button close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
+                </div>
+              </>
+            ) : null}
           </section>
 
-          {isApprover && snapshot && fullComparison ? <section className="panel reconciliation-panel reveal-animation">
-            <div className="panel-heading"><div><p className="eyebrow">VALIDACIÓN DEL ENCARGADO</p><h2>Sigma vs. cierre informado</h2></div><ArrowRightLeft size={22} /></div>
-            <div className="compare-list">
-              <div className="compare-row"><div><span>Clover Sigma</span><strong>{money.format(snapshot.cloverDirecto + snapshot.naranja)}</strong><small>Clover/QR Clover + Naranja</small></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.cloverFisico)}</strong><small className={fullComparison.coincidencias.clover ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.clover)} de diferencia</small></div></div>
-              <div className="compare-row"><div><span>Payway Sigma</span><strong>{money.format(snapshot.payway)}</strong></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.paywayFisico)}</strong><small className={fullComparison.coincidencias.payway ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.payway)} de diferencia</small></div></div>
-              <div className="compare-row"><div><span>RETI Sigma</span><strong>{money.format(snapshot.retiros)}</strong></div><div className="compare-arrow">→</div><div><span>Retiros documentados</span><strong>{money.format(efectivoRendido)}</strong><small className={fullComparison.coincidencias.retiros ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.retiros)} de diferencia administrativa</small></div></div>
-              <div className="compare-row"><div><span>Cuenta corriente Sigma</span><strong>{money.format(snapshot.cuentaCorriente)}</strong></div><div className="compare-arrow">→</div><div><span>Documentación recibida</span><strong>{money.format(totalCuentaCorrienteFisica)}</strong><small className={fullComparison.coincidencias.cuentaCorriente ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.cuentaCorriente)} de diferencia</small></div></div>
-            </div>
-            <div className="cash-result"><div><p className="eyebrow">RESULTADO NETO DE CAJA</p><h3>{fullComparison.cajaOk ? 'Dentro de tolerancia' : 'Requiere ajuste'}</h3><strong>{fullComparison.diferenciaCaja >= 0 ? 'Sobrante' : 'Faltante'} {money.format(Math.abs(fullComparison.diferenciaCaja))}</strong></div><div className={fullComparison.cajaOk ? 'result-ok' : fullComparison.diferenciaCaja > 0 ? 'result-surplus' : 'result-shortage'}><span>{fullComparison.cajaOk ? 'Caja OK' : fullComparison.diferenciaCaja > 0 ? 'Sobrante' : 'Faltante'}</span><strong>{money.format(Math.abs(fullComparison.diferenciaCaja))}</strong></div></div>
-            {!fullComparison.conceptosOk && fullComparison.cajaOk ? <div className="finding-card"><AlertTriangle size={20} /><div><strong>Posibles conceptos cruzados</strong><p>El total de caja está dentro de tolerancia, pero uno o más medios o documentos no coinciden. Revisá si hubo una imputación a un medio incorrecto antes de generar ajustes.</p></div></div> : null}
-            {fullComparison.conceptosOk && !fullComparison.cajaOk ? <div className="finding-card"><AlertTriangle size={20} /><div><strong>Los conceptos coinciden, pero la caja no</strong><p>Los medios están correctamente imputados; queda analizar el faltante o sobrante real de caja.</p></div></div> : null}
-            {!fullComparison.conceptosOk && !fullComparison.cajaOk ? <div className="finding-card"><AlertTriangle size={20} /><div><strong>Hay diferencias de conceptos y de caja</strong><p>Primero revisá las imputaciones y movimientos administrativos; luego determiná el faltante o sobrante que permanezca.</p></div></div> : null}
-          </section> : null}
+          {isApprover && snapshot && fullComparison ? (
+            <section className="panel reconciliation-panel reveal-animation">
+              <div className="panel-heading"><div><p className="eyebrow">VALIDACIÓN DEL ENCARGADO · CIERRE {closure.cierre_nro}</p><h2>Sigma vs. cierre informado</h2></div><ArrowRightLeft size={22} /></div>
+              <div className="compare-list">
+                <div className="compare-row"><div><span>Clover Sigma</span><strong>{money.format(snapshot.cloverDirecto + snapshot.naranja)}</strong><small>Clover/QR Clover + Naranja</small></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.cloverFisico)}</strong><small className={fullComparison.coincidencias.clover ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.clover)} de diferencia</small></div></div>
+                <div className="compare-row"><div><span>Payway Sigma</span><strong>{money.format(snapshot.payway)}</strong></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.paywayFisico)}</strong><small className={fullComparison.coincidencias.payway ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.payway)} de diferencia</small></div></div>
+                <div className="compare-row"><div><span>RETI Sigma</span><strong>{money.format(snapshot.retiros)}</strong></div><div className="compare-arrow">→</div><div><span>Retiros documentados</span><strong>{money.format(efectivoRendido)}</strong><small className={fullComparison.coincidencias.retiros ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.retiros)} de diferencia administrativa</small></div></div>
+                <div className="compare-row"><div><span>Cuenta corriente Sigma</span><strong>{money.format(snapshot.cuentaCorriente)}</strong></div><div className="compare-arrow">→</div><div><span>Documentación recibida</span><strong>{money.format(totalCuentaCorrienteFisica)}</strong><small className={fullComparison.coincidencias.cuentaCorriente ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.cuentaCorriente)} de diferencia</small></div></div>
+              </div>
+              <div className="cash-result">
+                <div><p className="eyebrow">RESULTADO NETO DEL TRAMO</p><h3>{fullComparison.cajaOk ? 'Dentro de tolerancia' : 'Requiere ajuste'}</h3><strong>{fullComparison.diferenciaCaja >= 0 ? 'Sobrante' : 'Faltante'} {money.format(Math.abs(fullComparison.diferenciaCaja))}</strong></div>
+                <div className={fullComparison.cajaOk ? 'result-ok' : fullComparison.diferenciaCaja > 0 ? 'result-surplus' : 'result-shortage'}><span>{fullComparison.cajaOk ? 'Caja OK' : fullComparison.diferenciaCaja > 0 ? 'Sobrante' : 'Faltante'}</span><strong>{money.format(Math.abs(fullComparison.diferenciaCaja))}</strong></div>
+              </div>
+              {!fullComparison.conceptosOk && fullComparison.cajaOk ? <div className="finding-card"><AlertTriangle size={20} /><div><strong>Posibles conceptos cruzados</strong><p>El total del tramo está dentro de tolerancia, pero uno o más conceptos no coinciden.</p></div></div> : null}
+              {fullComparison.conceptosOk && !fullComparison.cajaOk ? <div className="finding-card"><AlertTriangle size={20} /><div><strong>Los conceptos coinciden, pero la caja no</strong><p>Queda analizar el faltante o sobrante real del tramo.</p></div></div> : null}
+              {!fullComparison.conceptosOk && !fullComparison.cajaOk ? <div className="finding-card"><AlertTriangle size={20} /><div><strong>Hay diferencias de conceptos y de caja</strong><p>Primero revisá las imputaciones y luego el faltante o sobrante que permanezca.</p></div></div> : null}
+            </section>
+          ) : null}
         </div>
 
-        {isSupervisorReview && visibleBlindResult ? <section className="panel supervisor-review-panel">
-          <div className="panel-heading"><div><p className="eyebrow">PRIMER CONTROL</p><h2>Qué tenés que revisar</h2></div><EyeOff size={22} /></div>
-          <div className={`review-summary ${visibleBlindResult.conceptosOk ? 'concepts-ok' : 'concepts-review'} ${visibleBlindResult.cajaOk ? 'cash-ok' : 'cash-review'}`}><strong>{comparisonMessage(visibleBlindResult)}</strong><p>No se muestran importes esperados ni montos de diferencia.</p></div>
-          {reviewRows(visibleBlindResult)}
-          {visibleBlindResult.avisos?.comprobantePendiente ? <div className="info-box"><FileText size={18} /><span>Sigma informa al menos un comprobante pendiente. Revisá la documentación recibida antes del segundo cierre.</span></div> : null}
-        </section> : null}
+        {isSupervisorReview && visibleBlindResult ? (
+          <section className="panel supervisor-review-panel">
+            <div className="panel-heading"><div><p className="eyebrow">PRIMER CONTROL · CIERRE {closure.cierre_nro}</p><h2>Qué tenés que revisar</h2></div><EyeOff size={22} /></div>
+            <div className={`review-summary ${visibleBlindResult.conceptosOk ? 'concepts-ok' : 'concepts-review'} ${visibleBlindResult.cajaOk ? 'cash-ok' : 'cash-review'}`}>
+              <strong>{comparisonMessage(visibleBlindResult)}</strong>
+              <p>No se muestran importes esperados ni montos de diferencia.</p>
+            </div>
+            {reviewRows(visibleBlindResult)}
+            {visibleBlindResult.avisos?.comprobantePendiente ? <div className="info-box"><FileText size={18} /><span>Sigma informa al menos un comprobante pendiente dentro de este tramo. Revisá la documentación antes del segundo cierre.</span></div> : null}
+          </section>
+        ) : null}
 
-        {isWaitingValidation && visibleBlindResult && !isApprover ? <section className="panel supervisor-review-panel">
-          <div className="panel-heading"><div><p className="eyebrow">SEGUNDO CONTROL</p><h2>Cierre enviado a validación</h2></div><ShieldCheck size={22} /></div>
-          <div className="review-summary"><strong>{comparisonMessage(visibleBlindResult)}</strong><p>El Encargado Donato verá los importes y decidirá los ajustes necesarios.</p></div>
-          {reviewRows(visibleBlindResult)}
-        </section> : null}
+        {isWaitingValidation && visibleBlindResult && !isApprover ? (
+          <section className="panel supervisor-review-panel">
+            <div className="panel-heading"><div><p className="eyebrow">SEGUNDO CONTROL · CIERRE {closure.cierre_nro}</p><h2>Cierre enviado a validación</h2></div><ShieldCheck size={22} /></div>
+            <div className="review-summary"><strong>{comparisonMessage(visibleBlindResult)}</strong><p>Este tramo quedó congelado. El Encargado verá los importes y decidirá los ajustes.</p></div>
+            {reviewRows(visibleBlindResult)}
+          </section>
+        ) : null}
 
-        {isApprover && snapshot && fullComparison && ['PENDIENTE_VALIDACION', 'AJUSTES_AUTORIZADOS'].includes(closure.estado) ? <section className="panel approval-panel reveal-animation">
-          <div className="panel-heading"><div><p className="eyebrow">RESOLUCIÓN</p><h2>Validación de diferencias</h2></div><ShieldCheck size={22} /></div>
-          {closure.correccion_motivo ? <div className="info-box"><FileText size={18} /><span><strong>Observación del Supervisor:</strong> {closure.correccion_motivo}</span></div> : null}
-          {closure.estado === 'PENDIENTE_VALIDACION' ? <button className="primary-button approve-button" onClick={() => void approveAdjustments()} disabled={busy}><CheckCircle2 size={18} /> Validar y autorizar ajustes</button> : null}
-          {closure.estado === 'AJUSTES_AUTORIZADOS' ? <div className="authorized-box"><CheckCircle2 /><div><strong>Ajustes autorizados</strong><p>Recién en este estado se habilitará la ejecución de asientos en Sigma.</p><button className="secondary-button" disabled>Ejecutar asientos en Sigma · próxima etapa</button></div></div> : null}
-        </section> : null}
+        {isApprover && snapshot && fullComparison && ['PENDIENTE_VALIDACION', 'AJUSTES_AUTORIZADOS'].includes(closure.estado) ? (
+          <section className="panel approval-panel reveal-animation">
+            <div className="panel-heading"><div><p className="eyebrow">RESOLUCIÓN · CIERRE {closure.cierre_nro}</p><h2>Validación de diferencias</h2></div><ShieldCheck size={22} /></div>
+            {closure.correccion_motivo ? <div className="info-box"><FileText size={18} /><span><strong>Observación del Supervisor:</strong> {closure.correccion_motivo}</span></div> : null}
+            {closure.estado === 'PENDIENTE_VALIDACION' ? <button className="primary-button approve-button" onClick={() => void approveAdjustments()} disabled={busy}><CheckCircle2 size={18} /> Validar y autorizar ajustes</button> : null}
+            {closure.estado === 'AJUSTES_AUTORIZADOS' ? <div className="authorized-box"><CheckCircle2 /><div><strong>Ajustes autorizados</strong><p>Recién en este estado se habilitará la ejecución de asientos en Sigma.</p><button className="secondary-button" disabled>Ejecutar asientos en Sigma · próxima etapa</button></div></div> : null}
+          </section>
+        ) : null}
       </main>
     </div>
   );
