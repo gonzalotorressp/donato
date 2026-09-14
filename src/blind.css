@@ -147,8 +147,34 @@
 .locked-input { background: #f4f6f9 !important; color: #667085; }
 .money-input.compact { height: 42px; }
 .empty-detail { margin: 0; padding: 10px 12px; background: #f7f9fb; border-radius: 11px; color: #8a94a3; font-size: 13px; }
-.close-blind-button { margin-top: 6px; min-height: 50px; }
+.close-blind-button { min-height: 50px; }
 .close-help { margin: 12px 0 8px; color: #667085; font-size: 13px; line-height: 1.45; }
+
+.closure-actions {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 6px;
+}
+.cancel-closure-button {
+  min-height: 50px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-radius: 13px;
+  border: 1px solid #efc2bd;
+  background: #fff7f6;
+  color: #b42318;
+  font-weight: 850;
+}
+.cancel-closure-button:hover:not(:disabled) {
+  border-color: #d92d20;
+  background: #fff1f0;
+}
+.cancel-closure-button:disabled { opacity: .55; cursor: not-allowed; }
 
 .review-textarea {
   width: 100%;
@@ -260,4 +286,5 @@
   .cc-row { grid-template-columns: 1fr; }
   .icon-button { width: 100%; }
   .correction-box { grid-template-columns: 1fr; }
+  .closure-actions { grid-template-columns: 1fr; }
 }
