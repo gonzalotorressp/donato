@@ -7,6 +7,16 @@ const ACCOUNTING_ENDPOINT =
   `${process.env.SIGMA_BASE_URL}/custom/130-contable`;
 
 const CASH_ACCOUNTS = new Set([1260, 1261, 1262, 1263]);
+const SNAPSHOT_NUMERIC_FIELDS = [
+  'venta',
+  'efectivo',
+  'cloverDirecto',
+  'payway',
+  'naranja',
+  'cuentaCorriente',
+  'pendienteContado',
+  'retiros',
+];
 
 export function argentinaToday() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -49,11 +59,24 @@ export async function fetchTodayReports(fecha) {
   ]);
 }
 
+function normalizedTime(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.length >= 8 ? text.slice(0, 8) : text;
+}
+
 export function buildBlindJourneys(sales, accounting, fecha) {
   const usersWithSales = new Set();
+  const lastSaleTimeByUser = new Map();
+  const salesCountByUser = new Map();
+
   for (const row of sales) {
     if (row.fecha !== fecha || row.usuario === null || row.usuario === undefined) continue;
-    usersWithSales.add(Number(row.usuario));
+    const user = Number(row.usuario);
+    usersWithSales.add(user);
+    salesCountByUser.set(user, (salesCountByUser.get(user) || 0) + 1);
+    const hora = normalizedTime(row.hora);
+    if (hora && hora > (lastSaleTimeByUser.get(user) || '')) lastSaleTimeByUser.set(user, hora);
   }
 
   const nameByUser = new Map();
@@ -78,6 +101,8 @@ export function buildBlindJourneys(sales, accounting, fecha) {
         usuarioCodigo: user,
         usuarioNombre: nameByUser.get(user) || `Usuario ${user}`,
         cajaCodigo: account ? account - 1259 : null,
+        ultimaVentaHora: lastSaleTimeByUser.get(user) || null,
+        cantidadVentas: salesCountByUser.get(user) || 0,
       };
     })
     .sort((a, b) => a.usuarioNombre.localeCompare(b.usuarioNombre));
@@ -102,6 +127,12 @@ function isCurrentAccountSale(row) {
   return description.includes('CTA CTE') || description.includes('CUENTA CORRIENTE') || code === '12';
 }
 
+function saleDocumentKey(row) {
+  const comprobante = String(row.comprobante || '').trim();
+  if (comprobante) return comprobante;
+  return `${String(row.hora || '').trim()}|${String(row.cliente || '').trim()}|${saleAmount(row)}`;
+}
+
 export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo) {
   const user = Number(usuarioCodigo);
   const relevantSales = sales.filter((row) => row.fecha === fecha && Number(row.usuario) === user);
@@ -116,6 +147,7 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo) {
     cuentaCorriente: 0,
     pendienteContado: 0,
     retiros: 0,
+    ventasDocumentos: [],
     cuentaCorrienteDocumentos: [],
   };
 
@@ -124,10 +156,21 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo) {
 
   for (const row of relevantSales) {
     const amount = saleAmount(row);
+    snapshot.ventasDocumentos.push({
+      key: saleDocumentKey(row),
+      comprobante: row.comprobante || '',
+      hora: normalizedTime(row.hora),
+      clienteCodigo: row.cliente || '',
+      clienteNombre: row.clienteNombre || '',
+      importe: amount,
+    });
+
     if (isCurrentAccountSale(row)) {
       cuentaCorrienteCandidata += amount;
       snapshot.cuentaCorrienteDocumentos.push({
+        key: saleDocumentKey(row),
         comprobante: row.comprobante || '',
+        hora: normalizedTime(row.hora),
         clienteCodigo: row.cliente || '',
         clienteNombre: row.clienteNombre || '',
         importe: amount,
@@ -151,27 +194,72 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo) {
     }
   }
 
-  // RETI se devuelve sólo si la fila del reporte quedó registrada por el mismo usuario.
-  // La asignación definitiva por caja se seguirá conciliando con la documentación física.
+  // RETI sigue siendo una conciliación administrativa: 130 no tiene hora y el usuario
+  // registrador puede ser un supervisor. Se congela el acumulado disponible para poder
+  // trabajar por diferencia entre cortes sin duplicarlo en cierres posteriores.
   for (const row of relevantAccounting) {
     if (String(row.comprobanteCodigo || '').trim().toUpperCase() !== 'RETI') continue;
     if (!CASH_ACCOUNTS.has(Number(row.cuentaCodigo))) continue;
     snapshot.retiros += Math.abs(number(row.monto || row.haber || row.debe));
   }
 
-  snapshot.venta = round2(snapshot.venta);
-  snapshot.efectivo = round2(snapshot.efectivo);
-  snapshot.cloverDirecto = round2(snapshot.cloverDirecto);
-  snapshot.payway = round2(snapshot.payway);
-  snapshot.naranja = round2(snapshot.naranja);
-  snapshot.pendienteContado = round2(snapshot.pendienteContado);
-  snapshot.retiros = round2(snapshot.retiros);
+  for (const field of SNAPSHOT_NUMERIC_FIELDS) snapshot[field] = round2(snapshot[field]);
 
   const diferenciaVentaCodo = round2(snapshot.venta + codoDeudores);
   const residual = round2(diferenciaVentaCodo - snapshot.pendienteContado);
   snapshot.cuentaCorriente = round2(Math.max(0, Math.min(residual, Math.max(0, cuentaCorrienteCandidata))));
 
+  snapshot.ventasDocumentos.sort((a, b) => String(a.hora).localeCompare(String(b.hora)) || String(a.key).localeCompare(String(b.key)));
+  snapshot.cuentaCorrienteDocumentos.sort((a, b) => String(a.hora).localeCompare(String(b.hora)) || String(a.key).localeCompare(String(b.key)));
   return snapshot;
+}
+
+function documentDifference(currentRows, baselineRows) {
+  const baselineCounts = new Map();
+  for (const row of Array.isArray(baselineRows) ? baselineRows : []) {
+    const key = String(row?.key || row?.comprobante || '');
+    baselineCounts.set(key, (baselineCounts.get(key) || 0) + 1);
+  }
+
+  const result = [];
+  for (const row of Array.isArray(currentRows) ? currentRows : []) {
+    const key = String(row?.key || row?.comprobante || '');
+    const remaining = baselineCounts.get(key) || 0;
+    if (remaining > 0) baselineCounts.set(key, remaining - 1);
+    else result.push(row);
+  }
+  return result;
+}
+
+export function diffUserSnapshots(currentSnapshot, baselineSnapshot = {}) {
+  const current = currentSnapshot || {};
+  const baseline = baselineSnapshot || {};
+  const result = {
+    venta: 0,
+    efectivo: 0,
+    cloverDirecto: 0,
+    payway: 0,
+    naranja: 0,
+    cuentaCorriente: 0,
+    pendienteContado: 0,
+    retiros: 0,
+    ventasDocumentos: documentDifference(current.ventasDocumentos, baseline.ventasDocumentos),
+    cuentaCorrienteDocumentos: documentDifference(current.cuentaCorrienteDocumentos, baseline.cuentaCorrienteDocumentos),
+  };
+
+  for (const field of SNAPSHOT_NUMERIC_FIELDS) {
+    result[field] = round2(number(current[field]) - number(baseline[field]));
+  }
+  return result;
+}
+
+export function hasNewSalesSinceSnapshot(currentSnapshot, baselineSnapshot = {}) {
+  const currentDocs = Array.isArray(currentSnapshot?.ventasDocumentos) ? currentSnapshot.ventasDocumentos : [];
+  const baselineDocs = Array.isArray(baselineSnapshot?.ventasDocumentos) ? baselineSnapshot.ventasDocumentos : [];
+  if (currentDocs.length || baselineDocs.length) {
+    return documentDifference(currentDocs, baselineDocs).length > 0;
+  }
+  return Math.abs(round2(number(currentSnapshot?.venta) - number(baselineSnapshot?.venta))) > 0.01;
 }
 
 function sumRows(rows) {
@@ -205,8 +293,7 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}) {
     cuentaCorriente: round2(totalCuentaCorriente - cuentaCorrienteSigma),
   };
 
-  // Resultado neto del cierre: permite distinguir dinero faltante/sobrante de conceptos cruzados.
-  // Un error de imputación entre Clover/Payway/Efectivo puede dejar conceptos distintos pero total de caja correcto.
+  // Resultado neto del tramo: permite distinguir dinero faltante/sobrante de conceptos cruzados.
   const totalFisicoControlado = round2(efectivoRendido + cloverFisico + paywayFisico + totalCuentaCorriente);
   const totalSigmaControlado = round2(
     number(snapshot?.efectivo) + cloverSigma + paywaySigma + cuentaCorrienteSigma
