@@ -18,13 +18,14 @@ import {
   ShieldCheck,
   Trash2,
   WalletCards,
+  XCircle,
 } from 'lucide-react';
 import type { UserProfile } from './auth/userProfile';
 import { DonatoBrand } from './components/DonatoBrand';
 import { supabase } from './lib/supabase';
 import './blind.css';
 
-type ClosureStatus = 'BORRADOR' | 'REVISION_SUPERVISOR' | 'PENDIENTE_VALIDACION' | 'CERRADO' | 'AJUSTES_AUTORIZADOS' | 'AJUSTADO';
+type ClosureStatus = 'BORRADOR' | 'REVISION_SUPERVISOR' | 'PENDIENTE_VALIDACION' | 'CERRADO' | 'AJUSTES_AUTORIZADOS' | 'AJUSTADO' | 'CANCELADO';
 
 type Props = {
   profile: UserProfile;
@@ -83,6 +84,9 @@ type ClosureRow = {
   conceptos_ok?: boolean | null;
   caja_ok?: boolean | null;
   correccion_motivo?: string | null;
+  cancelado_at?: string | null;
+  cancelado_por?: string | null;
+  cancelacion_motivo?: string | null;
 };
 
 type SigmaSnapshot = {
@@ -212,7 +216,7 @@ export default function App({ profile, onSignOut }: Props) {
     return { Authorization: `Bearer ${token}` };
   }
 
-  const closureSelect = 'id,fecha,usuario_sigma_codigo,usuario_sigma_nombre,caja_codigo,estado,supervisor_user_id,declaracion_ciega,declaracion_ciega_inicial,carga_ciega_cerrada_at,revision_supervisor_count,revision_supervisor_at,diferencias_supervisor,conceptos_ok,caja_ok,correccion_motivo';
+  const closureSelect = 'id,fecha,usuario_sigma_codigo,usuario_sigma_nombre,caja_codigo,estado,supervisor_user_id,declaracion_ciega,declaracion_ciega_inicial,carga_ciega_cerrada_at,revision_supervisor_count,revision_supervisor_at,diferencias_supervisor,conceptos_ok,caja_ok,correccion_motivo,cancelado_at,cancelado_por,cancelacion_motivo';
 
   async function loadDashboard() {
     if (!supabase) return;
@@ -246,10 +250,11 @@ export default function App({ profile, onSignOut }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today]);
 
-  const closureByUser = useMemo(() => new Map(closures.map((item) => [item.usuario_sigma_codigo, item])), [closures]);
+  const activeClosures = useMemo(() => closures.filter((item) => item.estado !== 'CANCELADO'), [closures]);
+  const closureByUser = useMemo(() => new Map(activeClosures.map((item) => [item.usuario_sigma_codigo, item])), [activeClosures]);
   const pendingJourneys = useMemo(() => journeys.filter((journey) => !closureByUser.has(journey.usuarioCodigo)), [journeys, closureByUser]);
-  const inProgressClosures = useMemo(() => closures.filter((item) => ['BORRADOR', 'REVISION_SUPERVISOR', 'PENDIENTE_VALIDACION'].includes(item.estado)), [closures]);
-  const completedClosures = useMemo(() => closures.filter((item) => ['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(item.estado)), [closures]);
+  const inProgressClosures = useMemo(() => activeClosures.filter((item) => ['BORRADOR', 'REVISION_SUPERVISOR', 'PENDIENTE_VALIDACION'].includes(item.estado)), [activeClosures]);
+  const completedClosures = useMemo(() => activeClosures.filter((item) => ['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(item.estado)), [activeClosures]);
 
   const total = (rows: MoneyRow[]) => rows.reduce((sum, row) => sum + Number(row.importe || 0), 0);
   const totalDepositario = total(declaration.depositario);
@@ -569,6 +574,42 @@ export default function App({ profile, onSignOut }: Props) {
     }
   }
 
+  async function cancelClosure() {
+    if (!supabase || !closure || !isSupervisor || !['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado)) return;
+    const confirmed = window.confirm('¿Cancelar este cierre? El cajero volverá a aparecer como pendiente y este intento quedará guardado como cancelado.');
+    if (!confirmed) return;
+
+    setBusy(true);
+    setActionError(null);
+    try {
+      const now = new Date().toISOString();
+      const motivo = closure.estado === 'BORRADOR' ? 'Cancelado durante la carga del Supervisor' : 'Cancelado durante la revisión del Supervisor';
+      const { error } = await supabase
+        .from('donato_cierres_caja')
+        .update({
+          estado: 'CANCELADO',
+          declaracion_ciega: declaration,
+          cancelado_at: now,
+          cancelado_por: profile.userId,
+          cancelacion_motivo: motivo,
+        })
+        .eq('id', closure.id);
+      if (error) throw new Error(error.message);
+
+      setSelectedJourney(null);
+      setClosure(null);
+      setBlindComparison(null);
+      setSnapshot(null);
+      setFullComparison(null);
+      setRevisionNote('');
+      await loadDashboard();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'No se pudo cancelar el cierre');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function approveAdjustments() {
     if (!supabase || !closure || !isApprover) return;
     setBusy(true);
@@ -632,6 +673,7 @@ export default function App({ profile, onSignOut }: Props) {
     if (item.estado === 'PENDIENTE_VALIDACION') return 'Validación';
     if (item.estado === 'AJUSTES_AUTORIZADOS') return 'Ajustes autorizados';
     if (item.estado === 'AJUSTADO') return 'Ajustado';
+    if (item.estado === 'CANCELADO') return 'Cancelado';
     return 'Cerrado';
   }
 
@@ -732,7 +774,10 @@ export default function App({ profile, onSignOut }: Props) {
 
             {canEditDeclaration ? <>
               {firstCloseDone ? <p className="close-help">Este es el segundo control. Si después de revisarlo siguen existiendo diferencias, el cierre pasará al Encargado Donato.</p> : <p className="close-help">Al cerrar, el sistema hará el primer control sin mostrarte los importes esperados de Sigma.</p>}
-              <button className="primary-button wide close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
+              <div className="closure-actions">
+                <button className="cancel-closure-button" type="button" onClick={() => void cancelClosure()} disabled={busy}><XCircle size={18} /> Cancelar cierre</button>
+                <button className="primary-button close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
+              </div>
             </> : null}
           </section>
 
