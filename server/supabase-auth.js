@@ -27,19 +27,101 @@ export async function requireAuthenticatedUser(request) {
   return response.json();
 }
 
+const CLOSURE_SELECT = [
+  'id',
+  'fecha',
+  'usuario_sigma_codigo',
+  'usuario_sigma_nombre',
+  'caja_codigo',
+  'cierre_nro',
+  'estado',
+  'supervisor_user_id',
+  'carga_ciega_cerrada_at',
+  'submitted_at',
+  'declaracion_ciega',
+  'declaracion_ciega_inicial',
+  'revision_supervisor_count',
+  'diferencias_supervisor',
+  'conceptos_ok',
+  'caja_ok',
+  'tolerancia_caja_aplicada',
+  'corte_desde_at',
+  'corte_hasta_at',
+  'sigma_snapshot_acumulado',
+  'sigma_snapshot_tramo',
+  'sigma_baseline_cierre_id',
+  'sigma_snapshot_capturado_at',
+  'created_at',
+].join(',');
+
 export async function getClosureForUser(request, cierreId) {
   const headers = apiHeaders(request);
   if (!headers) return null;
 
   const url = new URL(`${supabaseUrl}/rest/v1/donato_cierres_caja`);
   url.searchParams.set('id', `eq.${cierreId}`);
-  url.searchParams.set(
-    'select',
-    'id,fecha,usuario_sigma_codigo,usuario_sigma_nombre,caja_codigo,estado,supervisor_user_id,carga_ciega_cerrada_at,submitted_at,declaracion_ciega,declaracion_ciega_inicial,revision_supervisor_count,diferencias_supervisor,conceptos_ok,caja_ok,tolerancia_caja_aplicada'
-  );
+  url.searchParams.set('select', CLOSURE_SELECT);
 
   const response = await fetch(url, { headers });
   if (!response.ok) return null;
+  const rows = await response.json();
+  return Array.isArray(rows) ? rows[0] || null : null;
+}
+
+export async function getClosuresForDate(request, fecha) {
+  const headers = apiHeaders(request);
+  if (!headers) return [];
+
+  const url = new URL(`${supabaseUrl}/rest/v1/donato_cierres_caja`);
+  url.searchParams.set('fecha', `eq.${fecha}`);
+  url.searchParams.set('select', CLOSURE_SELECT);
+  url.searchParams.set('order', 'usuario_sigma_codigo.asc,cierre_nro.asc,created_at.asc');
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) return [];
+  const rows = await response.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function getPreviousFrozenClosure(request, cierre) {
+  const headers = apiHeaders(request);
+  if (!headers || !cierre?.fecha || cierre?.usuario_sigma_codigo === undefined) return null;
+
+  const url = new URL(`${supabaseUrl}/rest/v1/donato_cierres_caja`);
+  url.searchParams.set('fecha', `eq.${cierre.fecha}`);
+  url.searchParams.set('usuario_sigma_codigo', `eq.${Number(cierre.usuario_sigma_codigo)}`);
+  url.searchParams.set('cierre_nro', `lt.${Number(cierre.cierre_nro || 1)}`);
+  url.searchParams.set('estado', 'neq.CANCELADO');
+  url.searchParams.set('select', 'id,cierre_nro,corte_hasta_at,sigma_snapshot_acumulado,sigma_snapshot_capturado_at');
+  url.searchParams.set('order', 'cierre_nro.desc,created_at.desc');
+  url.searchParams.set('limit', '1');
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) return null;
+  const rows = await response.json();
+  return Array.isArray(rows) ? rows[0] || null : null;
+}
+
+export async function saveClosureSigmaCut(request, cierreId, values) {
+  const headers = apiHeaders(request, {
+    'content-type': 'application/json',
+    Prefer: 'return=representation',
+  });
+  if (!headers) throw new Error('No autorizado');
+
+  const url = new URL(`${supabaseUrl}/rest/v1/donato_cierres_caja`);
+  url.searchParams.set('id', `eq.${cierreId}`);
+  url.searchParams.set('select', CLOSURE_SELECT);
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(values),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`No se pudo congelar el corte de Sigma: ${body.slice(0, 500)}`);
+  }
   const rows = await response.json();
   return Array.isArray(rows) ? rows[0] || null : null;
 }
