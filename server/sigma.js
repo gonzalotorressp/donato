@@ -173,3 +173,66 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo) {
 
   return snapshot;
 }
+
+function sumRows(rows) {
+  if (!Array.isArray(rows)) return 0;
+  return round2(rows.reduce((sum, row) => sum + number(row?.importe), 0));
+}
+
+export function compareBlindDeclaration(snapshot, declaration, config = {}) {
+  const toleranciaConceptos = Math.max(0, number(config.tolerancia_conceptos ?? 0.01));
+  const toleranciaCaja = Math.max(0, number(config.tolerancia_caja ?? 0.01));
+
+  const cloverFisico = round2(declaration?.cloverFisico);
+  const paywayFisico = round2(declaration?.paywayFisico);
+  const cierreEfectivo = round2(declaration?.cierreEfectivo);
+  const totalDepositario = sumRows(declaration?.depositario);
+  const totalSupervisor = sumRows(declaration?.retirosSupervisor);
+  const totalCuentaCorriente = Array.isArray(declaration?.cuentasCorrientes)
+    ? round2(declaration.cuentasCorrientes.reduce((sum, row) => sum + number(row?.importe), 0))
+    : 0;
+
+  const efectivoRendido = round2(totalDepositario + totalSupervisor + cierreEfectivo);
+  const cloverSigma = round2(number(snapshot?.cloverDirecto) + number(snapshot?.naranja));
+  const paywaySigma = round2(snapshot?.payway);
+  const retirosSigma = round2(snapshot?.retiros);
+  const cuentaCorrienteSigma = round2(snapshot?.cuentaCorriente);
+
+  const diferencias = {
+    clover: round2(cloverFisico - cloverSigma),
+    payway: round2(paywayFisico - paywaySigma),
+    retiros: round2(efectivoRendido - retirosSigma),
+    cuentaCorriente: round2(totalCuentaCorriente - cuentaCorrienteSigma),
+  };
+
+  // Resultado neto del cierre: permite distinguir dinero faltante/sobrante de conceptos cruzados.
+  // Un error de imputación entre Clover/Payway/Efectivo puede dejar conceptos distintos pero total de caja correcto.
+  const totalFisicoControlado = round2(efectivoRendido + cloverFisico + paywayFisico + totalCuentaCorriente);
+  const totalSigmaControlado = round2(
+    number(snapshot?.efectivo) + cloverSigma + paywaySigma + cuentaCorrienteSigma
+  );
+  const diferenciaCaja = round2(totalFisicoControlado - totalSigmaControlado);
+
+  const coincidencias = {
+    clover: Math.abs(diferencias.clover) <= toleranciaConceptos,
+    payway: Math.abs(diferencias.payway) <= toleranciaConceptos,
+    retiros: Math.abs(diferencias.retiros) <= toleranciaConceptos,
+    cuentaCorriente: Math.abs(diferencias.cuentaCorriente) <= toleranciaConceptos,
+  };
+
+  const conceptosOk = Object.values(coincidencias).every(Boolean);
+  const cajaOk = Math.abs(diferenciaCaja) <= toleranciaCaja;
+
+  return {
+    coincidencias,
+    conceptosOk,
+    cajaOk,
+    hayDiferencias: !conceptosOk || !cajaOk,
+    diferencias,
+    diferenciaCaja,
+    totalFisicoControlado,
+    totalSigmaControlado,
+    toleranciaConceptos,
+    toleranciaCaja,
+  };
+}
