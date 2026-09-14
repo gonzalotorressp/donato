@@ -1,5 +1,21 @@
-import { buildUserSnapshot, compareBlindDeclaration, fetchTodayReports } from '../../server/sigma.js';
-import { getClosureForUser, getDonatoCloseConfig, requireAuthenticatedUser, userHasCapability } from '../../server/supabase-auth.js';
+import {
+  buildUserSnapshot,
+  compareBlindDeclaration,
+  diffUserSnapshots,
+  fetchTodayReports,
+} from '../../server/sigma.js';
+import {
+  getClosureForUser,
+  getDonatoCloseConfig,
+  getPreviousFrozenClosure,
+  requireAuthenticatedUser,
+  saveClosureSigmaCut,
+  userHasCapability,
+} from '../../server/supabase-auth.js';
+
+function hasSnapshot(value) {
+  return Boolean(value && typeof value === 'object' && Object.keys(value).length);
+}
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') {
@@ -29,7 +45,7 @@ export default async function handler(request, response) {
       return;
     }
 
-    const cierre = await getClosureForUser(request, cierreId);
+    let cierre = await getClosureForUser(request, cierreId);
     if (!cierre) {
       response.status(404).json({ error: 'Cierre no encontrado' });
       return;
@@ -39,18 +55,36 @@ export default async function handler(request, response) {
       return;
     }
 
-    const [reports, config] = await Promise.all([
-      fetchTodayReports(cierre.fecha),
-      getDonatoCloseConfig(request),
-    ]);
-    const [sales, accounting] = reports;
-    const snapshot = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo);
-    const comparison = compareBlindDeclaration(snapshot, cierre.declaracion_ciega || {}, config || {});
+    let snapshot = cierre.sigma_snapshot_tramo;
+    if (!hasSnapshot(snapshot)) {
+      // Compatibilidad con cierres creados antes de incorporar jornadas partidas.
+      const [[sales, accounting], anterior] = await Promise.all([
+        fetchTodayReports(cierre.fecha),
+        getPreviousFrozenClosure(request, cierre),
+      ]);
+      const acumulado = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo);
+      snapshot = diffUserSnapshots(acumulado, anterior?.sigma_snapshot_acumulado || {});
+      const capturadoAt = cierre.corte_hasta_at || new Date().toISOString();
+      cierre = await saveClosureSigmaCut(request, cierre.id, {
+        sigma_snapshot_acumulado: acumulado,
+        sigma_snapshot_tramo: snapshot,
+        sigma_baseline_cierre_id: anterior?.id || null,
+        sigma_snapshot_capturado_at: capturadoAt,
+        corte_desde_at: anterior?.corte_hasta_at || `${cierre.fecha}T00:00:00-03:00`,
+        corte_hasta_at: capturadoAt,
+      });
+    }
+
+    const config = await getDonatoCloseConfig(request);
+    const comparison = compareBlindDeclaration(snapshot, cierre?.declaracion_ciega || {}, config || {});
 
     response.setHeader('Cache-Control', 'no-store');
     response.status(200).json({
       fecha: cierre.fecha,
       usuarioCodigo: cierre.usuario_sigma_codigo,
+      cierreNumero: Number(cierre.cierre_nro || 1),
+      corteDesde: cierre.corte_desde_at || null,
+      corteHasta: cierre.corte_hasta_at || cierre.sigma_snapshot_capturado_at || null,
       snapshot,
       comparison,
     });
