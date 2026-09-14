@@ -333,7 +333,7 @@ export default function App({ profile, onSignOut }: Props) {
 
       const sigmaData = await sigmaResponse.json();
       setJourneys(Array.isArray(sigmaData.jornadas) ? sigmaData.jornadas : []);
-      setClosures((closureResponse.data ?? []) as ClosureRow[]);
+      setClosures((closureResponse.data ?? []) as unknown as ClosureRow[]);
     } catch (error) {
       setDashboardError(error instanceof Error ? error.message : 'No se pudo cargar la jornada');
     } finally {
@@ -409,9 +409,9 @@ export default function App({ profile, onSignOut }: Props) {
 
       setSelectedJourney({
         ...journey,
-        proximoCierreNumero: Number((data as ClosureRow).cierre_nro || journey.proximoCierreNumero || 1),
+        proximoCierreNumero: Number((data as unknown as ClosureRow).cierre_nro || journey.proximoCierreNumero || 1),
       });
-      setClosure(data as ClosureRow);
+      setClosure(data as unknown as ClosureRow);
       setDeclaration(blankDeclaration());
       setBlindComparison(null);
       setSnapshot(null);
