@@ -11,10 +11,10 @@ import {
   LogOut,
   ReceiptText,
   ShieldCheck,
-  Store,
   WalletCards,
 } from 'lucide-react';
 import type { UserProfile } from './auth/userProfile';
+import { DonatoBrand } from './components/DonatoBrand';
 
 type ClosureStatus = 'BORRADOR' | 'PENDIENTE_VALIDACION' | 'CERRADO' | 'AJUSTES_AUTORIZADOS';
 
@@ -101,7 +101,7 @@ export default function App({ profile, onSignOut }: Props) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand-lockup sidebar-brand"><div className="brand-mark"><Store size={24} /></div><div><strong>Donato</strong><span>Operaciones</span></div></div>
+        <div className="sidebar-brand"><DonatoBrand /></div>
         <nav>
           <button className="nav-item active"><ClipboardCheck size={18} /> Cierre de caja</button>
           <button className="nav-item" disabled><Clock3 size={18} /> Historial</button>
