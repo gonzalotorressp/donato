@@ -1,4 +1,5 @@
-import { argentinaToday, buildUserSnapshot, fetchTodayReports } from '../../server/sigma.js';
+import { buildUserSnapshot, fetchTodayReports } from '../../server/sigma.js';
+import { getClosureForUser, requireAuthenticatedUser } from '../../server/supabase-auth.js';
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') {
@@ -7,17 +8,32 @@ export default async function handler(request, response) {
   }
 
   try {
-    const fecha = typeof request.query?.fecha === 'string' ? request.query.fecha : argentinaToday();
-    const usuario = Number(request.query?.usuario);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !Number.isFinite(usuario)) {
-      response.status(400).json({ error: 'Parámetros inválidos' });
+    const user = await requireAuthenticatedUser(request);
+    if (!user) {
+      response.status(401).json({ error: 'No autorizado' });
       return;
     }
 
-    const [sales, accounting] = await fetchTodayReports(fecha);
-    const snapshot = buildUserSnapshot(sales, accounting, fecha, usuario);
+    const cierreId = typeof request.query?.cierreId === 'string' ? request.query.cierreId : '';
+    if (!cierreId) {
+      response.status(400).json({ error: 'Falta cierreId' });
+      return;
+    }
+
+    const cierre = await getClosureForUser(request, cierreId);
+    if (!cierre) {
+      response.status(404).json({ error: 'Cierre no encontrado' });
+      return;
+    }
+    if (!cierre.carga_ciega_cerrada_at || !cierre.submitted_at) {
+      response.status(409).json({ error: 'La carga ciega todavía no fue cerrada' });
+      return;
+    }
+
+    const [sales, accounting] = await fetchTodayReports(cierre.fecha);
+    const snapshot = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo);
     response.setHeader('Cache-Control', 'no-store');
-    response.status(200).json({ fecha, usuarioCodigo: usuario, snapshot });
+    response.status(200).json({ fecha: cierre.fecha, usuarioCodigo: cierre.usuario_sigma_codigo, snapshot });
   } catch (error) {
     console.error('Error snapshot Donato', error);
     response.status(500).json({ error: error instanceof Error ? error.message : 'Error consultando Sigma' });
