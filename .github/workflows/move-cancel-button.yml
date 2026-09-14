@@ -1,0 +1,64 @@
+name: Move cancel closure button
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.event.head_commit.message != 'Move cancel closure button to header'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move action
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/App.tsx')
+          s = p.read_text()
+          old = '''          <div className={closure.estado === 'BORRADOR' ? 'blind-badge' : `status-pill status-${closure.estado.toLowerCase()}`}>
+            {closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}
+          </div>'''
+          new = '''          <div className="topbar-closure-actions">
+            {canEditDeclaration ? (
+              <button className="cancel-closure-button header-cancel-button" type="button" onClick={() => void cancelClosure()} disabled={busy}>
+                <XCircle size={17} /> Cancelar cierre
+              </button>
+            ) : null}
+            <div className={closure.estado === 'BORRADOR' ? 'blind-badge' : `status-pill status-${closure.estado.toLowerCase()}`}>
+              {closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}
+            </div>
+          </div>'''
+          if old not in s:
+              raise SystemExit('Header target not found')
+          s = s.replace(old, new, 1)
+          old_bottom = '''                <div className="closure-actions">
+                  <button className="cancel-closure-button" type="button" onClick={() => void cancelClosure()} disabled={busy}><XCircle size={18} /> Cancelar cierre</button>
+                  <button className="primary-button close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
+                </div>'''
+          new_bottom = '''                <div className="closure-actions closure-actions-single">
+                  <button className="primary-button close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
+                </div>'''
+          if old_bottom not in s:
+              raise SystemExit('Bottom target not found')
+          s = s.replace(old_bottom, new_bottom, 1)
+          p.write_text(s)
+
+          css = Path('src/blind.css')
+          c = css.read_text()
+          addition = '''\n.topbar-closure-actions {\n  display: flex;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 10px;\n  flex-wrap: wrap;\n}\n.header-cancel-button {\n  min-height: 40px;\n  padding: 0 13px;\n}\n.closure-actions-single {\n  grid-template-columns: minmax(220px, 1fr);\n}\n@media (max-width: 760px) {\n  .topbar-closure-actions { justify-content: flex-start; }\n  .header-cancel-button { width: 100%; }\n}\n'''
+          if '.topbar-closure-actions {' not in c:
+              css.write_text(c + addition)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx src/blind.css
+          git commit -m "Move cancel closure button to header"
+          git push
