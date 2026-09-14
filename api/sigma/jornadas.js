@@ -1,4 +1,5 @@
 import { argentinaToday, buildBlindJourneys, fetchTodayReports } from '../../server/sigma.js';
+import { requireAuthenticatedUser } from '../../server/supabase-auth.js';
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') {
@@ -7,6 +8,12 @@ export default async function handler(request, response) {
   }
 
   try {
+    const user = await requireAuthenticatedUser(request);
+    if (!user) {
+      response.status(401).json({ error: 'No autorizado' });
+      return;
+    }
+
     const fecha = typeof request.query?.fecha === 'string' ? request.query.fecha : argentinaToday();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
       response.status(400).json({ error: 'Fecha inválida' });
