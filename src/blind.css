@@ -20,21 +20,33 @@
   white-space: nowrap;
 }
 
-.blind-notice {
+.blind-notice,
+.review-notice {
   display: flex;
   gap: 13px;
   align-items: flex-start;
   margin-bottom: 18px;
   padding: 15px 17px;
   border-radius: 16px;
+}
+
+.blind-notice {
   border: 1px solid #d9e5f8;
   background: linear-gradient(135deg, #f8fbff, var(--donato-blue-soft));
   color: var(--donato-blue-dark);
 }
-
 .blind-notice svg { flex: none; margin-top: 1px; color: var(--donato-blue); }
-.blind-notice strong { display: block; }
-.blind-notice p { margin: 4px 0 0; color: #667085; line-height: 1.45; }
+.blind-notice strong,
+.review-notice strong { display: block; }
+.blind-notice p,
+.review-notice p { margin: 4px 0 0; color: #667085; line-height: 1.45; }
+
+.review-notice {
+  border: 1px solid #eadf76;
+  background: linear-gradient(135deg, #fffdf2, var(--donato-yellow-soft));
+  color: #6c5b00;
+}
+.review-notice svg { flex: none; margin-top: 1px; color: #9b7f00; }
 
 .refresh-button,
 .back-button,
@@ -101,6 +113,8 @@
 .cashier-state.review { background: #fff2e5; color: #a44d00; }
 .cashier-state.done { background: #e8f7ee; color: #067647; }
 
+.status-revision_supervisor { background: #fff2e5; color: #a44d00; border-color: #f0cda9; }
+
 .blind-form-grid { max-width: 900px; }
 .section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
 .section-title-row h3 { margin-bottom: 0; }
@@ -134,6 +148,21 @@
 .money-input.compact { height: 42px; }
 .empty-detail { margin: 0; padding: 10px 12px; background: #f7f9fb; border-radius: 11px; color: #8a94a3; font-size: 13px; }
 .close-blind-button { margin-top: 6px; min-height: 50px; }
+.close-help { margin: 12px 0 8px; color: #667085; font-size: 13px; line-height: 1.45; }
+
+.review-textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  border: 1px solid #d9e0e9;
+  border-radius: 11px;
+  padding: 10px 11px;
+  font: inherit;
+  color: var(--ink);
+  outline: none;
+  background: #fbfcfe;
+}
+.review-textarea:focus { border-color: var(--donato-blue); box-shadow: 0 0 0 3px rgba(36,86,166,.09); }
 
 .error-banner {
   margin-bottom: 16px;
@@ -147,6 +176,58 @@
 
 .reveal-animation { animation: reveal .28s ease-out; }
 @keyframes reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.supervisor-review-panel { margin-top: 18px; max-width: 900px; }
+.review-summary {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f7f9fc;
+  border: 1px solid #e2e7ef;
+}
+.review-summary strong { display: block; color: var(--donato-blue-dark); }
+.review-summary p { margin: 4px 0 0; color: #667085; font-size: 13px; }
+.review-summary.concepts-review.cash-ok { background: #fffaf0; border-color: #eedfa9; }
+.review-summary.concepts-ok.cash-review,
+.review-summary.concepts-review.cash-review { background: #fff5f4; border-color: #efc5c1; }
+
+.blind-check-list { display: grid; gap: 9px; }
+.blind-check-row {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid #e0e6ee;
+  border-radius: 13px;
+  background: #fbfcfe;
+}
+.blind-check-row svg { flex: none; margin-top: 2px; }
+.blind-check-row strong,
+.blind-check-row span,
+.blind-check-row small { display: block; }
+.blind-check-row span { margin-top: 2px; font-size: 13px; font-weight: 800; }
+.blind-check-row small { margin-top: 3px; color: #8791a0; }
+.blind-check-row.ok { border-color: #c9e8d4; background: #f4fbf6; }
+.blind-check-row.ok svg,
+.blind-check-row.ok span { color: #067647; }
+.blind-check-row.review { border-color: #eedfa9; background: #fffaf0; }
+.blind-check-row.review svg,
+.blind-check-row.review span { color: #9a6500; }
+
+.info-box {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: var(--donato-blue-soft);
+  border: 1px solid #d9e5f8;
+  color: var(--donato-blue-dark);
+  line-height: 1.45;
+  font-size: 13px;
+}
+.info-box svg { flex: none; margin-top: 1px; }
 
 .correction-box {
   display: grid;
