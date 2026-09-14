@@ -1,5 +1,15 @@
-import { argentinaToday, buildBlindJourneys, fetchTodayReports } from '../../server/sigma.js';
-import { requireAuthenticatedUser } from '../../server/supabase-auth.js';
+import {
+  argentinaToday,
+  buildBlindJourneys,
+  buildUserSnapshot,
+  fetchTodayReports,
+  hasNewSalesSinceSnapshot,
+} from '../../server/sigma.js';
+import { getClosuresForDate, requireAuthenticatedUser } from '../../server/supabase-auth.js';
+
+function hasSnapshot(value) {
+  return Boolean(value && typeof value === 'object' && Object.keys(value).length);
+}
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') {
@@ -20,8 +30,36 @@ export default async function handler(request, response) {
       return;
     }
 
-    const [sales, accounting] = await fetchTodayReports(fecha);
-    const jornadas = buildBlindJourneys(sales, accounting, fecha);
+    const [[sales, accounting], cierres] = await Promise.all([
+      fetchTodayReports(fecha),
+      getClosuresForDate(request, fecha),
+    ]);
+
+    const baseJourneys = buildBlindJourneys(sales, accounting, fecha);
+    const jornadas = baseJourneys.map((journey) => {
+      const cierresUsuario = cierres
+        .filter((item) => Number(item.usuario_sigma_codigo) === Number(journey.usuarioCodigo) && item.estado !== 'CANCELADO')
+        .sort((a, b) => Number(a.cierre_nro || 0) - Number(b.cierre_nro || 0));
+
+      const editable = cierresUsuario.find((item) => ['BORRADOR', 'REVISION_SUPERVISOR'].includes(item.estado));
+      const congelados = cierresUsuario.filter((item) => hasSnapshot(item.sigma_snapshot_acumulado));
+      const ultimoCongelado = congelados.length ? congelados[congelados.length - 1] : null;
+      const acumuladoActual = buildUserSnapshot(sales, accounting, fecha, journey.usuarioCodigo);
+      const tieneActividadNueva = !editable && hasNewSalesSinceSnapshot(
+        acumuladoActual,
+        ultimoCongelado?.sigma_snapshot_acumulado || {}
+      );
+
+      const maxNumero = cierresUsuario.reduce((max, item) => Math.max(max, Number(item.cierre_nro || 0)), 0);
+      return {
+        ...journey,
+        tieneActividadNueva,
+        proximoCierreNumero: editable ? Number(editable.cierre_nro || Math.max(1, maxNumero)) : maxNumero + 1,
+        cierreEditableId: editable?.id || null,
+        cierreAnteriorId: ultimoCongelado?.id || null,
+      };
+    });
+
     response.setHeader('Cache-Control', 'no-store');
     response.status(200).json({ fecha, jornadas });
   } catch (error) {
