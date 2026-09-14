@@ -8,7 +8,12 @@ export function DonatoBrand({ subtitle = 'Operaciones' }: DonatoBrandProps) {
   return (
     <div className="brand-lockup">
       <div className="brand-mark donato-mark">
-        <img className="donato-logo-image" src={donatoLogo} alt="Logo Donato" />
+        <img
+          className="donato-logo-image"
+          src={donatoLogo}
+          alt="Logo Donato"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: '50%' }}
+        />
       </div>
       <div className="brand-copy">
         <strong>Donato</strong>
