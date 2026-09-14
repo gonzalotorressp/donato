@@ -1,20 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { LogIn, ShieldCheck, Store } from 'lucide-react';
+import { LogIn, ShieldCheck } from 'lucide-react';
+import { DonatoBrand } from '../components/DonatoBrand';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 type AuthGateProps = {
   children: (session: Session) => ReactNode;
 };
-
-function Brand() {
-  return (
-    <div className="brand-lockup">
-      <div className="brand-mark"><Store size={26} /></div>
-      <div><strong>Donato</strong><span>Operaciones</span></div>
-    </div>
-  );
-}
 
 export function AuthGate({ children }: AuthGateProps) {
   const [session, setSession] = useState<Session | null>(null);
@@ -55,7 +47,7 @@ export function AuthGate({ children }: AuthGateProps) {
     return (
       <main className="auth-page">
         <section className="auth-card">
-          <Brand />
+          <DonatoBrand />
           <p className="eyebrow">PLATAFORMA DONATO</p>
           <h1>Falta conectar el acceso</h1>
           <p>La interfaz ya está desplegable. Cargá las variables de Supabase en Vercel para habilitar Google.</p>
@@ -72,7 +64,7 @@ export function AuthGate({ children }: AuthGateProps) {
     return (
       <main className="auth-page">
         <section className="auth-card auth-login-card">
-          <Brand />
+          <DonatoBrand />
           <p className="eyebrow">PLATAFORMA DONATO</p>
           <h1>Ingresá al centro de operaciones</h1>
           <p>Acceso con cuenta Google autorizada. Los permisos dependen del rol asignado.</p>
