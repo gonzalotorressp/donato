@@ -288,3 +288,22 @@
   .correction-box { grid-template-columns: 1fr; }
   .closure-actions { grid-template-columns: 1fr; }
 }
+
+.topbar-closure-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.header-cancel-button {
+  min-height: 40px;
+  padding: 0 13px;
+}
+.closure-actions-single {
+  grid-template-columns: minmax(220px, 1fr);
+}
+@media (max-width: 760px) {
+  .topbar-closure-actions { justify-content: flex-start; }
+  .header-cancel-button { width: 100%; }
+}

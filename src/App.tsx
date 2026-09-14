@@ -1099,9 +1099,16 @@ export default function App({ profile, onSignOut }: Props) {
               {cutFrom || cutTo ? ` · tramo ${cutFrom || 'inicio'}–${cutTo || 'en curso'}` : ''}
             </p>
           </div>
-          <div className={closure.estado === 'BORRADOR' ? 'blind-badge' : `status-pill status-${closure.estado.toLowerCase()}`}>
-            {closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}
-          </div>
+          <div className="topbar-closure-actions">
+  {canEditDeclaration ? (
+    <button className="cancel-closure-button header-cancel-button" type="button" onClick={() => void cancelClosure()} disabled={busy}>
+      <XCircle size={17} /> Cancelar cierre
+    </button>
+  ) : null}
+  <div className={closure.estado === 'BORRADOR' ? 'blind-badge' : `status-pill status-${closure.estado.toLowerCase()}`}>
+    {closure.estado === 'BORRADOR' ? <><EyeOff size={16} /> CONTROL CIEGO</> : statusLabel(closure)}
+  </div>
+</div>
         </header>
 
         {closure.estado === 'BORRADOR' ? (
@@ -1214,8 +1221,7 @@ export default function App({ profile, onSignOut }: Props) {
                 {firstCloseDone
                   ? <p className="close-help">Este es el segundo control del Cierre {closure.cierre_nro}. Si siguen existiendo diferencias, pasa al Encargado Donato.</p>
                   : <p className="close-help">Al cerrar se congela el tramo de Sigma. Todo movimiento posterior quedará para el próximo cierre del cajero.</p>}
-                <div className="closure-actions">
-                  <button className="cancel-closure-button" type="button" onClick={() => void cancelClosure()} disabled={busy}><XCircle size={18} /> Cancelar cierre</button>
+                <div className="closure-actions closure-actions-single">
                   <button className="primary-button close-blind-button" onClick={() => void closeCashBox()} disabled={busy}><ClipboardCheck size={18} /> {busy ? 'Cerrando…' : 'Cerrar caja'}</button>
                 </div>
               </>
