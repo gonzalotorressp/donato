@@ -279,6 +279,11 @@ export default function App({ profile, onSignOut }: Props) {
   const [today] = useState(todayArgentina());
   const [journeys, setJourneys] = useState<Journey[]>([]);
   const [closures, setClosures] = useState<ClosureRow[]>([]);
+  const [dashboardMode, setDashboardMode] = useState<'today' | 'history'>('today');
+  const [historyClosures, setHistoryClosures] = useState<ClosureRow[]>([]);
+  const [historyDate, setHistoryDate] = useState('');
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [selectedJourney, setSelectedJourney] = useState<Journey | null>(null);
@@ -347,7 +352,7 @@ export default function App({ profile, onSignOut }: Props) {
     setDashboardError(null);
     try {
       const headers = await authHeaders();
-      const [sigmaResponse, closureResponse] = await Promise.all([
+      const [sigmaResponse, closureResponse, openResponse] = await Promise.all([
         fetch(`/api/sigma/jornadas?fecha=${today}`, { headers, cache: 'no-store' }),
         supabase
           .from('donato_cierres_caja')
@@ -355,6 +360,12 @@ export default function App({ profile, onSignOut }: Props) {
           .eq('fecha', today)
           .order('usuario_sigma_nombre', { ascending: true })
           .order('cierre_nro', { ascending: true }),
+        supabase
+          .from('donato_cierres_caja')
+          .select(closureSelect)
+          .in('estado', ['BORRADOR', 'REVISION_SUPERVISOR', 'PENDIENTE_VALIDACION'])
+          .order('fecha', { ascending: false })
+          .order('usuario_sigma_nombre', { ascending: true }),
       ]);
 
       if (!sigmaResponse.ok) {
@@ -362,14 +373,39 @@ export default function App({ profile, onSignOut }: Props) {
         throw new Error(body.error || 'No se pudieron consultar las cajas de hoy');
       }
       if (closureResponse.error) throw new Error(closureResponse.error.message);
+      if (openResponse.error) throw new Error(openResponse.error.message);
 
       const sigmaData = await sigmaResponse.json();
       setJourneys(Array.isArray(sigmaData.jornadas) ? sigmaData.jornadas : []);
-      setClosures((closureResponse.data ?? []) as unknown as ClosureRow[]);
+      const merged = new Map<string, ClosureRow>();
+      for (const row of [...(closureResponse.data ?? []), ...(openResponse.data ?? [])] as unknown as ClosureRow[]) {
+        merged.set(row.id, row);
+      }
+      setClosures([...merged.values()]);
     } catch (error) {
       setDashboardError(error instanceof Error ? error.message : 'No se pudo cargar la jornada');
     } finally {
       setLoadingDashboard(false);
+    }
+  }
+
+  async function loadHistory() {
+    if (!supabase) return;
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const { data, error } = await supabase
+        .from('donato_cierres_caja')
+        .select(closureSelect)
+        .order('fecha', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) throw new Error(error.message);
+      setHistoryClosures((data ?? []) as unknown as ClosureRow[]);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : 'No se pudo cargar el historial');
+    } finally {
+      setLoadingHistory(false);
     }
   }
 
@@ -408,6 +444,11 @@ export default function App({ profile, onSignOut }: Props) {
   const completedClosures = useMemo(
     () => activeClosures.filter((item) => ['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(item.estado)),
     [activeClosures]
+  );
+
+  const filteredHistoryClosures = useMemo(
+    () => historyDate ? historyClosures.filter((item) => item.fecha === historyDate) : historyClosures,
+    [historyClosures, historyDate]
   );
 
   const total = (rows: MoneyRow[]) => rows.reduce((sum, row) => sum + Number(row.importe || 0), 0);
@@ -979,7 +1020,8 @@ export default function App({ profile, onSignOut }: Props) {
 
   function closureMeta(item: ClosureRow) {
     const cut = displayTime(item.corte_hasta_at || item.sigma_snapshot_capturado_at);
-    return `Caja ${item.caja_codigo || '—'} · Cierre ${item.cierre_nro}${cut ? ` · ${cut}` : ''}`;
+    const datePrefix = item.fecha !== today ? `${displayDate(item.fecha)} · ` : '';
+    return `${datePrefix}Caja ${item.caja_codigo || '—'} · Cierre ${item.cierre_nro}${cut ? ` · ${cut}` : ''}`;
   }
 
   async function downloadCurrentClosurePdf() {
@@ -999,14 +1041,85 @@ export default function App({ profile, onSignOut }: Props) {
     } catch (error) { setActionError(error instanceof Error ? error.message : 'No se pudo generar el PDF'); }
   }
 
+  if ((!selectedJourney || !closure) && dashboardMode === 'history') {
+    return (
+      <div className="app-shell">
+        <aside className="sidebar">
+          <div className="sidebar-brand"><DonatoBrand /></div>
+          <nav>
+            <button className="nav-item" onClick={() => { setDashboardMode('today'); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
+            <button className="nav-item active"><Clock3 size={18} /> Historial</button>
+            <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
+          </nav>
+          <div className="sidebar-user">
+            <span>{roleLabel}</span>
+            <strong>{profile.nombre || profile.email}</strong>
+            <button onClick={onSignOut}><LogOut size={16} /> Salir</button>
+          </div>
+        </aside>
+
+        <main className="workspace">
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">HISTORIAL</p>
+              <h1>Historial de cierres de caja</h1>
+              <p>Consultá cierres anteriores, pendientes de validación y reportes históricos.</p>
+            </div>
+            <button className="refresh-button" onClick={() => void loadHistory()} disabled={loadingHistory}>
+              <RefreshCw size={16} /> Actualizar
+            </button>
+          </header>
+
+          <section className="panel dashboard-panel">
+            <div className="panel-heading">
+              <div><p className="eyebrow">FILTRO</p><h2>Buscar por fecha</h2></div>
+              <Clock3 size={22} />
+            </div>
+            <div className="section-title-row">
+              <input className="text-input" type="date" value={historyDate} onChange={(event) => setHistoryDate(event.target.value)} />
+              {historyDate ? <button className="add-row-button" type="button" onClick={() => setHistoryDate('')}>Ver todos</button> : null}
+            </div>
+          </section>
+
+          {historyError ? <div className="error-banner">{historyError}</div> : null}
+
+          <section className="panel dashboard-panel">
+            <div className="panel-heading">
+              <div><p className="eyebrow">CIERRES REGISTRADOS</p><h2>{historyDate ? `Cierres del ${displayDate(historyDate)}` : 'Últimos cierres'}</h2></div>
+              <FileText size={22} />
+            </div>
+            {loadingHistory ? (
+              <div className="empty-state"><Clock3 /><div><strong>Cargando historial…</strong><p>Consultando cierres guardados.</p></div></div>
+            ) : filteredHistoryClosures.length ? (
+              <div className="cashier-list">
+                {filteredHistoryClosures.map((item) => (
+                  <button key={item.id} className={`cashier-card ${['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(item.estado) ? 'completed' : ''}`} onClick={() => void openExistingClosure(item)}>
+                    <div className="cashier-avatar">{item.usuario_sigma_nombre.slice(0, 1)}</div>
+                    <div>
+                      <strong>{item.usuario_sigma_nombre}</strong>
+                      <span>{displayDate(item.fecha)} · Caja {item.caja_codigo || '—'} · Cierre {item.cierre_nro}</span>
+                    </div>
+                    <div className={`cashier-state ${['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(item.estado) ? 'done' : item.estado === 'BORRADOR' ? 'pending' : 'review'}`}>{statusLabel(item)}</div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state"><FileText /><div><strong>No hay cierres para mostrar</strong><p>{historyDate ? 'No se registraron cierres en esa fecha.' : 'Todavía no hay cierres en el historial.'}</p></div></div>
+            )}
+          </section>
+        </main>
+      </div>
+    );
+  }
+
   if (!selectedJourney || !closure) {
     return (
       <div className="app-shell">
         <aside className="sidebar">
           <div className="sidebar-brand"><DonatoBrand /></div>
           <nav>
-            <button className="nav-item active"><ClipboardCheck size={18} /> Cierre de caja</button>
-            <button className="nav-item" disabled><Clock3 size={18} /> Historial</button>
+            <button className={`nav-item ${dashboardMode === 'today' ? 'active' : ''}`} onClick={() => { setDashboardMode('today'); setSelectedJourney(null); setClosure(null); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
+            <button className={`nav-item ${dashboardMode === 'history' ? 'active' : ''}`} onClick={() => { setDashboardMode('history'); setSelectedJourney(null); setClosure(null); void loadHistory(); }}><Clock3 size={18} /> Historial</button>
             <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
           </nav>
           <div className="sidebar-user">
@@ -1138,7 +1251,8 @@ export default function App({ profile, onSignOut }: Props) {
             setBlindComparison(null);
             setSnapshot(null);
             setFullComparison(null);
-            void loadDashboard();
+            if (dashboardMode === 'history') void loadHistory();
+            else void loadDashboard();
           }}
         >
           <ArrowLeft size={17} /> Volver a cajas
