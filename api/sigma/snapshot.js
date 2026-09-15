@@ -103,11 +103,22 @@ export default async function handler(request, response) {
     const retiCarry = carryFrom(anteriorCaja, cierre);
     const comparison = compareBlindDeclaration(snapshot, cierre?.declaracion_ciega || {}, config || {}, retiCarry);
 
+    const efectivoEsperadoCierre = Number(
+      (Number(snapshot?.efectivo || 0) - Number(comparison.retirosDocumentados || 0)).toFixed(2),
+    );
+    const efectivoEntregadoCierre = Number(
+      cierre?.efectivo_entregado_cierre
+        ?? cierre?.declaracion_ciega?.cierreEfectivo
+        ?? 0,
+    );
+
     cierre = await saveClosureSigmaCut(request, cierre.id, {
       administrativo_ok: comparison.administrativoOk,
       reti_pendiente_entrada: comparison.retirosPendienteEntrada,
       reti_pendiente_salida: comparison.retirosPendienteSalida,
       reti_conciliacion: comparison.retiConciliacion,
+      efectivo_esperado_cierre: efectivoEsperadoCierre,
+      efectivo_entregado_cierre: efectivoEntregadoCierre,
     });
 
     response.setHeader('Cache-Control', 'no-store');
@@ -119,6 +130,14 @@ export default async function handler(request, response) {
       corteHasta: cierre.corte_hasta_at || cierre.sigma_snapshot_capturado_at || null,
       snapshot,
       comparison,
+      cashControl: {
+        fondo_inicial: Number(cierre.fondo_inicial || 0),
+        fondo_devuelto: Number(cierre.fondo_devuelto || 0),
+        diferencia_fondo: Number(cierre.diferencia_fondo || 0),
+        efectivo_esperado_cierre: Number(cierre.efectivo_esperado_cierre || 0),
+        efectivo_entregado_cierre: Number(cierre.efectivo_entregado_cierre || 0),
+        diferencia_efectivo: Number(cierre.diferencia_efectivo || 0),
+      },
     });
   } catch (error) {
     console.error('Error snapshot Donato', error);
