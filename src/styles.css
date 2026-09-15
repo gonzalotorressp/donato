@@ -208,3 +208,45 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .result-ok, .result-surplus, .result-shortage { text-align: left; }
   .auth-card { padding: 28px 24px; }
 }
+
+
+.approver-cash-editor {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #d8dee8;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.approver-cash-editor .compact-heading {
+  margin-bottom: 0;
+}
+
+.cash-edit-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.cash-edit-summary span {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #586274;
+  font-size: 0.82rem;
+}
+
+.cash-edit-summary strong {
+  color: #172033;
+  font-size: 1rem;
+}
+
+@media (max-width: 760px) {
+  .cash-edit-summary {
+    grid-template-columns: 1fr;
+  }
+}
