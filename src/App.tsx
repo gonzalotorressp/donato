@@ -101,6 +101,12 @@ type ClosureRow = {
   conceptos_ok?: boolean | null;
   caja_ok?: boolean | null;
   administrativo_ok?: boolean | null;
+  fondo_inicial?: number;
+  fondo_devuelto?: number;
+  diferencia_fondo?: number;
+  efectivo_entregado_cierre?: number;
+  efectivo_esperado_cierre?: number;
+  diferencia_efectivo?: number;
   reti_pendiente_entrada?: number;
   reti_pendiente_salida?: number;
   correccion_motivo?: string | null;
@@ -295,6 +301,12 @@ export default function App({ profile, onSignOut }: Props) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [revisionNote, setRevisionNote] = useState('');
+  const [approverCash, setApproverCash] = useState({
+    fondoInicial: 0,
+    fondoDevuelto: 0,
+    efectivoEntregadoCierre: 0,
+  });
+  const [approverCashDirty, setApproverCashDirty] = useState(false);
 
   const isSupervisor = profile.rol === 'supervisor_caja' || profile.rol === 'administrador';
   const isApprover = profile.rol === 'encargado_donato' || profile.rol === 'administrador';
@@ -306,6 +318,9 @@ export default function App({ profile, onSignOut }: Props) {
 
   const canEditDeclaration = Boolean(
     closure && isSupervisor && ['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado)
+  );
+  const canApproverEditCash = Boolean(
+    closure && isApprover && closure.estado === 'PENDIENTE_VALIDACION'
   );
   const firstCloseDone = Boolean(closure?.carga_ciega_cerrada_at);
 
@@ -327,6 +342,12 @@ export default function App({ profile, onSignOut }: Props) {
     'conceptos_ok',
     'caja_ok',
     'administrativo_ok',
+    'fondo_inicial',
+    'fondo_devuelto',
+    'diferencia_fondo',
+    'efectivo_entregado_cierre',
+    'efectivo_esperado_cierre',
+    'diferencia_efectivo',
     'reti_pendiente_entrada',
     'reti_pendiente_salida',
     'correccion_motivo',
@@ -514,6 +535,16 @@ export default function App({ profile, onSignOut }: Props) {
         ? item.declaracion_ciega
         : blankDeclaration()
     );
+    setApproverCash({
+      fondoInicial: Number(item.fondo_inicial || 0),
+      fondoDevuelto: Number(item.fondo_devuelto || 0),
+      efectivoEntregadoCierre: Number(
+        item.efectivo_entregado_cierre
+          ?? item.declaracion_ciega?.cierreEfectivo
+          ?? 0
+      ),
+    });
+    setApproverCashDirty(false);
     setBlindComparison(item.diferencias_supervisor ?? null);
     setSnapshot(null);
     setFullComparison(null);
@@ -567,7 +598,14 @@ export default function App({ profile, onSignOut }: Props) {
       if (!response.ok) throw new Error(body.error || 'No se pudo consultar Sigma');
       setSnapshot(body.snapshot as SigmaSnapshot);
       setFullComparison(body.comparison as FullComparison);
-      return body as { snapshot: SigmaSnapshot; comparison: FullComparison };
+      if (body.cashControl) {
+        setClosure((current) => current ? { ...current, ...body.cashControl } : current);
+      }
+      return body as {
+        snapshot: SigmaSnapshot;
+        comparison: FullComparison;
+        cashControl?: Partial<ClosureRow>;
+      };
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'No se pudo cargar la validación');
       return null;
@@ -917,11 +955,54 @@ export default function App({ profile, onSignOut }: Props) {
     }
   }
 
+  async function persistApproverCashChanges(reloadComparison = true) {
+    if (!supabase || !closure || !canApproverEditCash) return null;
+
+    const { data, error } = await supabase.rpc('encargado_modificar_cierre_donato', {
+      p_cierre_id: closure.id,
+      p_fondo_inicial: approverCash.fondoInicial,
+      p_fondo_devuelto: approverCash.fondoDevuelto,
+      p_efectivo_entregado_cierre: approverCash.efectivoEntregadoCierre,
+    });
+    if (error) throw new Error(error.message);
+
+    const updated = (Array.isArray(data) ? data[0] : data) as ClosureRow | null;
+    if (!updated) throw new Error('Supabase no devolvió el cierre actualizado');
+
+    setClosure((current) => current ? { ...current, ...updated } : updated);
+    setDeclaration((current) => ({
+      ...current,
+      cierreEfectivo: Number(updated.efectivo_entregado_cierre || 0),
+    }));
+    setApproverCashDirty(false);
+
+    if (reloadComparison) {
+      await loadFullSnapshot(closure.id);
+    }
+    return updated;
+  }
+
+  async function saveApproverCashChanges() {
+    if (!canApproverEditCash) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await persistApproverCashChanges(true);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'No se pudieron guardar las correcciones');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function approveAdjustments() {
     if (!supabase || !closure || !isApprover) return;
     setBusy(true);
     setActionError(null);
     try {
+      if (approverCashDirty) {
+        await persistApproverCashChanges(false);
+      }
       const now = new Date().toISOString();
       const { error } = await supabase
         .from('donato_cierres_caja')
@@ -1445,6 +1526,53 @@ export default function App({ profile, onSignOut }: Props) {
           <section className="panel approval-panel reveal-animation">
             <div className="panel-heading"><div><p className="eyebrow">RESOLUCIÓN · CIERRE {closure.cierre_nro}</p><h2>Validación de diferencias</h2></div><ShieldCheck size={22} /></div>
             {closure.correccion_motivo ? <div className="info-box"><FileText size={18} /><span><strong>Observación del Supervisor:</strong> {closure.correccion_motivo}</span></div> : null}
+            {closure.estado === 'PENDIENTE_VALIDACION' ? (
+              <div className="approver-cash-editor">
+                <div className="panel-heading compact-heading">
+                  <div>
+                    <p className="eyebrow">CORRECCIÓN PREVIA</p>
+                    <h3>Fondo y efectivo recibido</h3>
+                  </div>
+                </div>
+                <div className="two-cols">
+                  <NumberInput
+                    label="Fondo inicial entregado"
+                    value={approverCash.fondoInicial}
+                    onChange={(value) => {
+                      setApproverCash((current) => ({ ...current, fondoInicial: value }));
+                      setApproverCashDirty(true);
+                    }}
+                    hint="No integra la recaudación"
+                  />
+                  <NumberInput
+                    label="Fondo devuelto"
+                    value={approverCash.fondoDevuelto}
+                    onChange={(value) => {
+                      setApproverCash((current) => ({ ...current, fondoDevuelto: value }));
+                      setApproverCashDirty(true);
+                    }}
+                    hint="Se controla separado del cierre"
+                  />
+                  <NumberInput
+                    label="Efectivo entregado al cierre"
+                    value={approverCash.efectivoEntregadoCierre}
+                    onChange={(value) => {
+                      setApproverCash((current) => ({ ...current, efectivoEntregadoCierre: value }));
+                      setApproverCashDirty(true);
+                    }}
+                    hint="Sólo recaudación, sin fondo"
+                  />
+                </div>
+                <div className="cash-edit-summary">
+                  <span>Diferencia de fondo <strong>{money.format(approverCash.fondoDevuelto - approverCash.fondoInicial)}</strong></span>
+                  <span>Efectivo esperado <strong>{money.format(Number(closure.efectivo_esperado_cierre || 0))}</strong></span>
+                  <span>Diferencia de caja <strong>{money.format(approverCash.efectivoEntregadoCierre - Number(closure.efectivo_esperado_cierre || 0))}</strong></span>
+                </div>
+                <button className="secondary-button" type="button" onClick={() => void saveApproverCashChanges()} disabled={busy || !approverCashDirty}>
+                  {busy ? 'Guardando…' : approverCashDirty ? 'Guardar correcciones' : 'Correcciones guardadas'}
+                </button>
+              </div>
+            ) : null}
             {closure.estado === 'PENDIENTE_VALIDACION' ? <button className="primary-button approve-button" onClick={() => void approveAdjustments()} disabled={busy}><CheckCircle2 size={18} /> Validar y autorizar ajustes</button> : null}
             {closure.estado === 'AJUSTES_AUTORIZADOS' ? <div className="authorized-box"><CheckCircle2 /><div><strong>Ajustes autorizados</strong><p>Recién en este estado se habilitará la ejecución de asientos en Sigma.</p><button className="secondary-button" disabled>Ejecutar asientos en Sigma · próxima etapa</button></div></div> : null}
           </section>
