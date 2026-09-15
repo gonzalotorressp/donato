@@ -7,6 +7,7 @@ import {
 import {
   getClosureForUser,
   getDonatoCloseConfig,
+  getPreviousCashboxClosure,
   getPreviousFrozenClosure,
   requireAuthenticatedUser,
   saveClosureSigmaCut,
@@ -46,23 +47,32 @@ export default async function handler(request, response) {
     }
 
     let snapshotTramo = cierre.sigma_snapshot_tramo;
+    let retiPendienteEntrada = Number(cierre.reti_pendiente_entrada || 0);
     const snapshotCajaActual = hasSnapshot(snapshotTramo) && Number(snapshotTramo?.cajaCodigo || 0) === Number(cierre.caja_codigo || 0);
+
     if (!snapshotCajaActual) {
-      const [[sales, accounting], anterior] = await Promise.all([
+      const [[sales, accounting], anteriorUsuario, anteriorCaja] = await Promise.all([
         fetchTodayReports(cierre.fecha),
         getPreviousFrozenClosure(request, cierre),
+        getPreviousCashboxClosure(request, cierre),
       ]);
 
       const acumulado = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo, cierre.caja_codigo);
-      const baseline = anterior?.sigma_snapshot_acumulado || {};
-      snapshotTramo = diffUserSnapshots(acumulado, baseline);
+      snapshotTramo = diffUserSnapshots(
+        acumulado,
+        anteriorUsuario?.sigma_snapshot_acumulado || {},
+        anteriorCaja?.sigma_snapshot_acumulado || {},
+      );
+      retiPendienteEntrada = Number(anteriorCaja?.reti_pendiente_salida || 0);
       const capturadoAt = new Date().toISOString();
-      const corteDesde = anterior?.corte_hasta_at || `${cierre.fecha}T00:00:00-03:00`;
+      const corteDesde = anteriorUsuario?.corte_hasta_at || `${cierre.fecha}T00:00:00-03:00`;
 
       cierre = await saveClosureSigmaCut(request, cierre.id, {
         sigma_snapshot_acumulado: acumulado,
         sigma_snapshot_tramo: snapshotTramo,
-        sigma_baseline_cierre_id: anterior?.id || null,
+        sigma_baseline_cierre_id: anteriorUsuario?.id || null,
+        reti_baseline_cierre_id: anteriorCaja?.id || null,
+        reti_pendiente_entrada: retiPendienteEntrada,
         sigma_snapshot_capturado_at: capturadoAt,
         corte_desde_at: corteDesde,
         corte_hasta_at: capturadoAt,
@@ -77,7 +87,25 @@ export default async function handler(request, response) {
     }
 
     const config = await getDonatoCloseConfig(request);
-    const comparison = compareBlindDeclaration(snapshotTramo, cierre?.declaracion_ciega || {}, config || {});
+    const comparison = compareBlindDeclaration(
+      snapshotTramo,
+      cierre?.declaracion_ciega || {},
+      config || {},
+      retiPendienteEntrada,
+    );
+
+    cierre = await saveClosureSigmaCut(request, cierre.id, {
+      administrativo_ok: comparison.administrativoOk,
+      reti_pendiente_entrada: comparison.retirosPendienteEntrada,
+      reti_pendiente_salida: comparison.retirosPendienteSalida,
+      reti_conciliacion: {
+        pendienteEntrada: comparison.retirosPendienteEntrada,
+        sigmaTramo: Number(snapshotTramo?.retiros || 0),
+        fisicoTramo: comparison.retirosDocumentados,
+        pendienteSalida: comparison.retirosPendienteSalida,
+        sigmaMovimientos: Array.isArray(snapshotTramo?.retirosDocumentos) ? snapshotTramo.retirosDocumentos : [],
+      },
+    });
 
     response.setHeader('Cache-Control', 'no-store');
     response.status(200).json({
@@ -87,8 +115,10 @@ export default async function handler(request, response) {
         administrativoOk: comparison.administrativoOk,
         cajaOk: comparison.cajaOk,
         hayDiferencias: comparison.hayDiferencias,
+        hayPendienteAdministrativo: comparison.hayPendienteAdministrativo,
         avisos: {
           comprobantePendiente: Number(snapshotTramo?.pendienteContado || 0) > Number(config?.tolerancia_conceptos ?? 0.01),
+          pendienteAdministrativo: comparison.hayPendienteAdministrativo,
         },
       },
       cierreNumero: Number(cierre?.cierre_nro || 1),

@@ -262,7 +262,6 @@ export function buildUserSnapshot(sales, accounting, fecha, usuarioCodigo, cajaC
         key: [
           Number(row.cuentaCodigo) || '',
           Number(row.usuarioCodigo) || '',
-          retiroImporte,
           String(row.concepto || '').trim(),
           String(row.observacion || '').trim(),
         ].join('|'),
@@ -305,7 +304,39 @@ function documentDifference(currentRows, baselineRows) {
   return result;
 }
 
-export function diffUserSnapshots(currentSnapshot, baselineSnapshot = {}) {
+function retiroMovementDifference(currentRows, baselineRows) {
+  const currentByKey = new Map();
+  const baselineByKey = new Map();
+
+  for (const row of Array.isArray(currentRows) ? currentRows : []) {
+    const key = String(row?.key || '');
+    const current = currentByKey.get(key);
+    currentByKey.set(key, current
+      ? { ...current, importe: round2(number(current.importe) + number(row?.importe)) }
+      : { ...row, key, importe: round2(row?.importe) });
+  }
+  for (const row of Array.isArray(baselineRows) ? baselineRows : []) {
+    const key = String(row?.key || '');
+    baselineByKey.set(key, round2(number(baselineByKey.get(key)) + number(row?.importe)));
+  }
+
+  const keys = new Set([...currentByKey.keys(), ...baselineByKey.keys()]);
+  const result = [];
+  for (const key of keys) {
+    const current = currentByKey.get(key);
+    const delta = round2(number(current?.importe) - number(baselineByKey.get(key)));
+    if (Math.abs(delta) <= 0.005) continue;
+    result.push({
+      ...(current || { key }),
+      key,
+      importe: delta,
+    });
+  }
+  result.sort((a, b) => Math.abs(number(b.importe)) - Math.abs(number(a.importe)) || String(a.key).localeCompare(String(b.key)));
+  return result;
+}
+
+export function diffUserSnapshots(currentSnapshot, baselineSnapshot = {}, cashboxBaselineSnapshot = baselineSnapshot) {
   const current = currentSnapshot || {};
   const baseline = baselineSnapshot || {};
   const result = {
@@ -320,11 +351,12 @@ export function diffUserSnapshots(currentSnapshot, baselineSnapshot = {}) {
     cajaCodigo: current.cajaCodigo ?? baseline.cajaCodigo ?? null,
     ventasDocumentos: documentDifference(current.ventasDocumentos, baseline.ventasDocumentos),
     cuentaCorrienteDocumentos: documentDifference(current.cuentaCorrienteDocumentos, baseline.cuentaCorrienteDocumentos),
-    retirosDocumentos: documentDifference(current.retirosDocumentos, baseline.retirosDocumentos),
+    retirosDocumentos: retiroMovementDifference(current.retirosDocumentos, cashboxBaselineSnapshot?.retirosDocumentos),
   };
 
   for (const field of SNAPSHOT_NUMERIC_FIELDS) {
-    result[field] = round2(number(current[field]) - number(baseline[field]));
+    const fieldBaseline = field === 'retiros' ? cashboxBaselineSnapshot : baseline;
+    result[field] = round2(number(current[field]) - number(fieldBaseline?.[field]));
   }
   return result;
 }
@@ -343,7 +375,7 @@ function sumRows(rows) {
   return round2(rows.reduce((sum, row) => sum + number(row?.importe), 0));
 }
 
-export function compareBlindDeclaration(snapshot, declaration, config = {}) {
+export function compareBlindDeclaration(snapshot, declaration, config = {}, retiPendienteEntrada = 0) {
   const toleranciaConceptos = Math.max(0, number(config.tolerancia_conceptos ?? 0.01));
   const toleranciaCaja = Math.max(0, number(config.tolerancia_caja ?? 0.01));
 
@@ -363,11 +395,15 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}) {
   const paywaySigma = round2(snapshot?.payway);
   const retirosSigma = round2(snapshot?.retiros);
   const cuentaCorrienteSigma = round2(snapshot?.cuentaCorriente);
+  const retirosPendienteEntrada = round2(retiPendienteEntrada);
+  // Positivo: Sigma tiene RETI aún no respaldado por documentación física.
+  // Negativo: hay documentación física aún no registrada como RETI en Sigma.
+  const retirosPendienteSalida = round2(retirosPendienteEntrada + retirosSigma - retirosDocumentados);
 
   const diferencias = {
     clover: round2(cloverFisico - cloverSigma),
     payway: round2(paywayFisico - paywaySigma),
-    retiros: round2(retirosDocumentados - retirosSigma),
+    retiros: round2(-retirosPendienteSalida),
     cuentaCorriente: round2(totalCuentaCorriente - cuentaCorrienteSigma),
   };
 
@@ -394,12 +430,16 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}) {
     conceptosOk,
     administrativoOk,
     cajaOk,
-    hayDiferencias: !conceptosOk || !administrativoOk || !cajaOk,
+    // Un pendiente RETI no bloquea el cierre individual si caja y conceptos operativos están bien.
+    hayDiferencias: !conceptosOk || !cajaOk,
+    hayPendienteAdministrativo: !administrativoOk,
     diferencias,
     diferenciaCaja,
     totalFisicoControlado,
     totalSigmaControlado,
     retirosDocumentados,
+    retirosPendienteEntrada,
+    retirosPendienteSalida,
     totalDepositario,
     totalSupervisor,
     cierreEfectivo,

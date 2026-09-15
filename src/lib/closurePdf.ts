@@ -225,7 +225,7 @@ export async function downloadClosurePdf(input: ClosurePdfInput) {
     blindComparison?.coincidencias?.retiros;
   const cashOk = fullComparison?.cajaOk ?? blindComparison?.cajaOk;
   pair('Medios / conceptos', conceptOk ? 'OK' : 'REVISAR', 'Resultado de caja', cashOk ? 'OK' : 'REVISAR');
-  pair('Control administrativo RETI', adminOk ? 'OK' : 'REVISAR');
+  pair('Control administrativo RETI', adminOk ? 'OK' : 'PENDIENTE PARA PROXIMO CIERRE');
 
   if (snapshot && fullComparison) {
     ensure(16);
@@ -250,6 +250,15 @@ export async function downloadClosurePdf(input: ClosurePdfInput) {
     tableRow('Efectivo', pesos.format(num(snapshot.efectivo)), pesos.format(efectivoFisico), pesos.format(efectivoFisico - num(snapshot.efectivo)));
     tableRow('Cuenta corriente', pesos.format(num(snapshot.cuentaCorriente)), pesos.format(cuentaCorrienteFisica), pesos.format(num(fullComparison.diferencias?.cuentaCorriente)));
     tableRow('RETI administrativo', pesos.format(num(snapshot.retiros)), pesos.format(retirosDocumentados), pesos.format(num(fullComparison.diferencias?.retiros)));
+    if (num(fullComparison.retirosPendienteEntrada)) {
+      pair('Pendiente RETI recibido del cierre anterior', pesos.format(Math.abs(num(fullComparison.retirosPendienteEntrada))));
+    }
+    if (num(fullComparison.retirosPendienteSalida)) {
+      const sentido = num(fullComparison.retirosPendienteSalida) > 0
+        ? 'Sigma pendiente de documentacion fisica'
+        : 'Documentacion fisica pendiente de Sigma';
+      pair('Pendiente RETI para proximo cierre', pesos.format(Math.abs(num(fullComparison.retirosPendienteSalida))), 'Sentido', sentido);
+    }
     if (Array.isArray(snapshot.retirosDocumentos) && snapshot.retirosDocumentos.length) {
       ensure(10);
       doc.setFontSize(7.5);
