@@ -225,7 +225,12 @@ export async function downloadClosurePdf(input: ClosurePdfInput) {
     blindComparison?.coincidencias?.retiros;
   const cashOk = fullComparison?.cajaOk ?? blindComparison?.cajaOk;
   pair('Medios / conceptos', conceptOk ? 'OK' : 'REVISAR', 'Resultado de caja', cashOk ? 'OK' : 'REVISAR');
-  pair('Control administrativo RETI', adminOk ? 'OK' : 'PENDIENTE PARA PROXIMO CIERRE');
+  const adminStatus = fullComparison?.errorRegistroAdministrativo
+    ? 'ERROR DE REGISTRACION SIGMA'
+    : fullComparison?.hayPendienteAdministrativo
+      ? 'PENDIENTE PARA PROXIMO CIERRE'
+      : adminOk ? 'OK' : 'REVISAR';
+  pair('Control administrativo RETI', adminStatus);
 
   if (snapshot && fullComparison) {
     ensure(16);
@@ -250,14 +255,11 @@ export async function downloadClosurePdf(input: ClosurePdfInput) {
     tableRow('Efectivo', pesos.format(num(snapshot.efectivo)), pesos.format(efectivoFisico), pesos.format(efectivoFisico - num(snapshot.efectivo)));
     tableRow('Cuenta corriente', pesos.format(num(snapshot.cuentaCorriente)), pesos.format(cuentaCorrienteFisica), pesos.format(num(fullComparison.diferencias?.cuentaCorriente)));
     tableRow('RETI administrativo', pesos.format(num(snapshot.retiros)), pesos.format(retirosDocumentados), pesos.format(num(fullComparison.diferencias?.retiros)));
-    if (num(fullComparison.retirosPendienteEntrada)) {
-      pair('Pendiente RETI recibido del cierre anterior', pesos.format(Math.abs(num(fullComparison.retirosPendienteEntrada))));
-    }
-    if (num(fullComparison.retirosPendienteSalida)) {
-      const sentido = num(fullComparison.retirosPendienteSalida) > 0
-        ? 'Sigma pendiente de documentacion fisica'
-        : 'Documentacion fisica pendiente de Sigma';
-      pair('Pendiente RETI para proximo cierre', pesos.format(Math.abs(num(fullComparison.retirosPendienteSalida))), 'Sentido', sentido);
+    if (fullComparison.errorRegistroAdministrativo) {
+      pair('RETI', 'ERROR: no existe movimiento o combinacion completa que coincida con el fisico');
+    } else if (fullComparison.hayPendienteAdministrativo) {
+      if (num(fullComparison.retirosSigmaPendienteSalida)) pair('Movimientos Sigma pendientes', pesos.format(num(fullComparison.retirosSigmaPendienteSalida)));
+      if (num(fullComparison.retirosFisicoPendienteSalida)) pair('Documentacion fisica pendiente', pesos.format(num(fullComparison.retirosFisicoPendienteSalida)));
     }
     if (Array.isArray(snapshot.retirosDocumentos) && snapshot.retirosDocumentos.length) {
       ensure(10);

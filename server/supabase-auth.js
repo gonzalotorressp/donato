@@ -116,8 +116,9 @@ export async function getPreviousCashboxClosure(request, cierre) {
   url.searchParams.set('caja_codigo', `eq.${Number(cierre.caja_codigo)}`);
   url.searchParams.set('id', `neq.${cierre.id}`);
   url.searchParams.set('estado', 'neq.CANCELADO');
-  url.searchParams.set('corte_hasta_at', 'not.is.null');
-  url.searchParams.set('select', 'id,corte_hasta_at,sigma_snapshot_acumulado,reti_pendiente_salida');
+  if (cierre.corte_hasta_at) url.searchParams.set('corte_hasta_at', `lt.${cierre.corte_hasta_at}`);
+  else url.searchParams.set('corte_hasta_at', 'not.is.null');
+  url.searchParams.set('select', 'id,corte_hasta_at,sigma_snapshot_acumulado,reti_pendiente_salida,reti_conciliacion');
   url.searchParams.set('order', 'corte_hasta_at.desc,created_at.desc');
   url.searchParams.set('limit', '1');
 

@@ -18,6 +18,21 @@ function hasSnapshot(value) {
   return Boolean(value && typeof value === 'object' && Object.keys(value).length);
 }
 
+function carryFrom(previous, current) {
+  const stored = current?.reti_conciliacion?.entrada;
+  if (stored && (Array.isArray(stored.movimientosSigma) || Array.isArray(stored.gruposFisicos))) {
+    return {
+      movimientosSigma: Array.isArray(stored.movimientosSigma) ? stored.movimientosSigma : [],
+      gruposFisicos: Array.isArray(stored.gruposFisicos) ? stored.gruposFisicos : [],
+    };
+  }
+  const salida = previous?.reti_conciliacion?.salida;
+  return {
+    movimientosSigma: Array.isArray(salida?.movimientosSigma) ? salida.movimientosSigma : [],
+    gruposFisicos: Array.isArray(salida?.gruposFisicos) ? salida.gruposFisicos : [],
+  };
+}
+
 export default async function handler(request, response) {
   if (request.method !== 'GET') {
     response.status(405).json({ error: 'Method not allowed' });
@@ -57,29 +72,27 @@ export default async function handler(request, response) {
     }
 
     let snapshot = cierre.sigma_snapshot_tramo;
-    let retiPendienteEntrada = Number(cierre.reti_pendiente_entrada || 0);
     const snapshotCajaActual = hasSnapshot(snapshot) && Number(snapshot?.cajaCodigo || 0) === Number(cierre.caja_codigo || 0);
+    let anteriorCaja = await getPreviousCashboxClosure(request, cierre);
 
     if (!snapshotCajaActual) {
-      const [[sales, accounting], anteriorUsuario, anteriorCaja] = await Promise.all([
+      const [[sales, accounting], anteriorUsuario] = await Promise.all([
         fetchTodayReports(cierre.fecha),
         getPreviousFrozenClosure(request, cierre),
-        getPreviousCashboxClosure(request, cierre),
       ]);
+      anteriorCaja = await getPreviousCashboxClosure(request, cierre);
       const acumulado = buildUserSnapshot(sales, accounting, cierre.fecha, cierre.usuario_sigma_codigo, cierre.caja_codigo);
       snapshot = diffUserSnapshots(
         acumulado,
         anteriorUsuario?.sigma_snapshot_acumulado || {},
         anteriorCaja?.sigma_snapshot_acumulado || {},
       );
-      retiPendienteEntrada = Number(anteriorCaja?.reti_pendiente_salida || 0);
       const capturadoAt = cierre.corte_hasta_at || new Date().toISOString();
       cierre = await saveClosureSigmaCut(request, cierre.id, {
         sigma_snapshot_acumulado: acumulado,
         sigma_snapshot_tramo: snapshot,
         sigma_baseline_cierre_id: anteriorUsuario?.id || null,
         reti_baseline_cierre_id: anteriorCaja?.id || null,
-        reti_pendiente_entrada: retiPendienteEntrada,
         sigma_snapshot_capturado_at: capturadoAt,
         corte_desde_at: anteriorUsuario?.corte_hasta_at || `${cierre.fecha}T00:00:00-03:00`,
         corte_hasta_at: capturadoAt,
@@ -87,24 +100,14 @@ export default async function handler(request, response) {
     }
 
     const config = await getDonatoCloseConfig(request);
-    const comparison = compareBlindDeclaration(
-      snapshot,
-      cierre?.declaracion_ciega || {},
-      config || {},
-      retiPendienteEntrada,
-    );
+    const retiCarry = carryFrom(anteriorCaja, cierre);
+    const comparison = compareBlindDeclaration(snapshot, cierre?.declaracion_ciega || {}, config || {}, retiCarry);
 
     cierre = await saveClosureSigmaCut(request, cierre.id, {
       administrativo_ok: comparison.administrativoOk,
       reti_pendiente_entrada: comparison.retirosPendienteEntrada,
       reti_pendiente_salida: comparison.retirosPendienteSalida,
-      reti_conciliacion: {
-        pendienteEntrada: comparison.retirosPendienteEntrada,
-        sigmaTramo: Number(snapshot?.retiros || 0),
-        fisicoTramo: comparison.retirosDocumentados,
-        pendienteSalida: comparison.retirosPendienteSalida,
-        sigmaMovimientos: Array.isArray(snapshot?.retirosDocumentos) ? snapshot.retirosDocumentos : [],
-      },
+      reti_conciliacion: comparison.retiConciliacion,
     });
 
     response.setHeader('Cache-Control', 'no-store');

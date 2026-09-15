@@ -78,7 +78,9 @@ type BlindComparison = {
   cajaOk: boolean;
   hayDiferencias: boolean;
   hayPendienteAdministrativo?: boolean;
-  avisos?: { comprobantePendiente?: boolean; pendienteAdministrativo?: boolean };
+  errorRegistroAdministrativo?: boolean;
+  administrativoEstado?: 'CONCILIADO' | 'PENDIENTE' | 'ERROR_REGISTRO';
+  avisos?: { comprobantePendiente?: boolean; pendienteAdministrativo?: boolean; errorRegistroAdministrativo?: boolean };
 };
 
 type ClosureRow = {
@@ -143,9 +145,14 @@ type FullComparison = {
   cajaOk: boolean;
   hayDiferencias: boolean;
   hayPendienteAdministrativo?: boolean;
+  errorRegistroAdministrativo?: boolean;
+  administrativoEstado?: 'CONCILIADO' | 'PENDIENTE' | 'ERROR_REGISTRO';
   retirosDocumentados?: number;
   retirosPendienteEntrada?: number;
   retirosPendienteSalida?: number;
+  retirosSigmaPendienteSalida?: number;
+  retirosFisicoPendienteSalida?: number;
+  retiConciliacion?: any;
   diferencias: {
     clover: number;
     payway: number;
@@ -260,7 +267,8 @@ function blankDeclaration(): BlindDeclaration {
 }
 
 function comparisonMessage(result: BlindComparison) {
-  if (result.conceptosOk && result.cajaOk && result.hayPendienteAdministrativo) return 'La caja y los medios coinciden. Queda un movimiento administrativo pendiente para el próximo cierre de esta caja.';
+  if (result.errorRegistroAdministrativo) return 'La caja puede coincidir, pero RETI tiene un error de registración: ningún movimiento o combinación completa coincide con lo informado físicamente.';
+  if (result.conceptosOk && result.cajaOk && result.hayPendienteAdministrativo) return 'La caja y los medios coinciden. Quedan movimientos completos pendientes para el próximo cierre de esta caja.';
   if (result.conceptosOk && result.cajaOk) return 'Los conceptos y el resultado de caja coinciden.';
   if (!result.conceptosOk && result.cajaOk) return 'La caja está dentro de tolerancia, pero hay conceptos que no coinciden.';
   if (result.conceptosOk && !result.cajaOk) return 'Los conceptos coinciden, pero la caja presenta una diferencia.';
@@ -939,7 +947,7 @@ export default function App({ profile, onSignOut }: Props) {
     const rows = [
       { label: 'Clover', ok: result.coincidencias.clover, detail: 'Cierre de lote Clover' },
       { label: 'Payway', ok: result.coincidencias.payway, detail: 'Cierre de lote Payway' },
-      { label: 'Control administrativo RETI', ok: result.coincidencias.retiros, detail: result.coincidencias.retiros ? 'Documentación conciliada con Sigma' : 'Queda pendiente para el próximo cierre de esta caja; no bloquea si caja y medios están OK' },
+      { label: 'Control administrativo RETI', ok: result.coincidencias.retiros, detail: result.errorRegistroAdministrativo ? 'Error de registración: no existe un movimiento o combinación completa que coincida con lo físico' : result.hayPendienteAdministrativo ? 'Hay movimientos completos pendientes para el próximo cierre de esta caja' : 'Documentación conciliada con Sigma' },
       { label: 'Cuenta corriente', ok: result.coincidencias.cuentaCorriente, detail: 'Documentación recibida' },
       { label: 'Resultado de caja', ok: result.cajaOk, detail: 'Faltante o sobrante neto' },
     ];
@@ -1285,7 +1293,7 @@ export default function App({ profile, onSignOut }: Props) {
               <div className="compare-list">
                 <div className="compare-row"><div><span>Clover Sigma</span><strong>{money.format(snapshot.cloverDirecto + snapshot.naranja)}</strong><small>Clover/QR Clover + Naranja</small></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.cloverFisico)}</strong><small className={fullComparison.coincidencias.clover ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.clover)} de diferencia</small></div></div>
                 <div className="compare-row"><div><span>Payway Sigma</span><strong>{money.format(snapshot.payway)}</strong></div><div className="compare-arrow">→</div><div><span>Cierre informado</span><strong>{money.format(declaration.paywayFisico)}</strong><small className={fullComparison.coincidencias.payway ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.payway)} de diferencia</small></div></div>
-                <div className="compare-row reti-compare-row"><div><span>RETI Sigma · Caja {closure.caja_codigo}</span><strong>{money.format(snapshot.retiros)}</strong><small>Movimientos nuevos de la caja desde el último corte de esa misma caja.</small>{Number(fullComparison.retirosPendienteEntrada || 0) !== 0 ? <small className="reti-carry-note">Pendiente anterior: {money.format(Math.abs(Number(fullComparison.retirosPendienteEntrada || 0)))} · {Number(fullComparison.retirosPendienteEntrada || 0) > 0 ? 'Sigma pendiente de documentación' : 'documentación pendiente de Sigma'}</small> : null}{snapshot.retirosDocumentos?.length ? <div className="reti-detail-list">{snapshot.retirosDocumentos.map((retiro, index) => <div className="reti-detail-item" key={retiro.key || `${index}-${retiro.importe}`}><div><b>{money.format(retiro.importe)}</b><span>{retiro.usuarioNombre || (retiro.usuarioCodigo ? `Usuario ${retiro.usuarioCodigo}` : 'Usuario no informado')}</span></div>{retiro.concepto ? <small>{retiro.concepto}</small> : null}{retiro.observacion ? <small>{retiro.observacion}</small> : null}</div>)}</div> : <small className="reti-detail-empty">Sin detalle adicional para este corte.</small>}</div><div className="compare-arrow">→</div><div><span>Documentación física del cierre</span><strong>{money.format(totalDepositario + totalSupervisor)}</strong><small className={fullComparison.coincidencias.retiros ? 'positive' : 'negative'}>{fullComparison.coincidencias.retiros ? 'Conciliado' : `${money.format(Math.abs(Number(fullComparison.retirosPendienteSalida || 0)))} queda pendiente para el próximo cierre de Caja ${closure.caja_codigo}`}</small>{!fullComparison.coincidencias.retiros ? <small>{Number(fullComparison.retirosPendienteSalida || 0) > 0 ? 'Sigma tiene RETI pendiente de documentación física.' : 'Hay documentación física pendiente de registrarse como RETI en Sigma.'}</small> : null}</div></div>
+                <div className="compare-row reti-compare-row"><div><span>Movimientos RETI Sigma · Caja {closure.caja_codigo}</span><strong>{money.format(snapshot.retiros)}</strong><small>Se concilian movimientos completos; nunca se parte un RETI para hacer coincidir un saldo.</small>{snapshot.retirosDocumentos?.length ? <div className="reti-detail-list">{snapshot.retirosDocumentos.map((retiro: any, index) => <div className="reti-detail-item" key={retiro.key || `${index}-${retiro.importe}`}><div><b>{money.format(retiro.importe)}</b><span>{retiro.usuarioNombre || (retiro.usuarioCodigo ? `Usuario ${retiro.usuarioCodigo}` : 'Usuario no informado')}</span></div>{retiro.concepto ? <small>{retiro.concepto}</small> : null}{retiro.esDeltaInferido ? <small>Incremento detectado desde el corte anterior</small> : null}{retiro.observacion ? <small>{retiro.observacion}</small> : null}</div>)}</div> : <small className="reti-detail-empty">Sin detalle individual guardado para este corte.</small>}</div><div className="compare-arrow">→</div><div><span>Documentación física del cierre</span><strong>{money.format(totalDepositario + totalSupervisor)}</strong>{fullComparison.errorRegistroAdministrativo ? <><small className="negative">Error de registración Sigma</small><small>No existe un movimiento o combinación completa que coincida con el importe físico. No se divide la diferencia.</small></> : fullComparison.hayPendienteAdministrativo ? <><small className="negative">Pendiente administrativo</small><small>{fullComparison.retirosSigmaPendienteSalida ? `${money.format(fullComparison.retirosSigmaPendienteSalida)} en movimientos Sigma completos quedan para el próximo cierre.` : `${money.format(fullComparison.retirosFisicoPendienteSalida || 0)} de documentación física espera su RETI en Sigma.`}</small></> : <small className="positive">Conciliado por movimientos completos</small>}</div></div>
                 <div className="compare-row"><div><span>Cuenta corriente Sigma</span><strong>{money.format(snapshot.cuentaCorriente)}</strong></div><div className="compare-arrow">→</div><div><span>Documentación recibida</span><strong>{money.format(totalCuentaCorrienteFisica)}</strong><small className={fullComparison.coincidencias.cuentaCorriente ? 'positive' : 'negative'}>{money.format(fullComparison.diferencias.cuentaCorriente)} de diferencia</small></div></div>
               </div>
               <div className="cash-result">

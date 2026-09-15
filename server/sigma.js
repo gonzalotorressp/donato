@@ -324,12 +324,17 @@ function retiroMovementDifference(currentRows, baselineRows) {
   const result = [];
   for (const key of keys) {
     const current = currentByKey.get(key);
-    const delta = round2(number(current?.importe) - number(baselineByKey.get(key)));
+    const currentAmount = round2(current?.importe);
+    const baselineAmount = round2(baselineByKey.get(key));
+    const delta = round2(currentAmount - baselineAmount);
     if (Math.abs(delta) <= 0.005) continue;
     result.push({
       ...(current || { key }),
       key,
       importe: delta,
+      esDeltaInferido: Math.abs(baselineAmount) > 0.005,
+      importeAcumuladoAnterior: baselineAmount,
+      importeAcumuladoActual: currentAmount,
     });
   }
   result.sort((a, b) => Math.abs(number(b.importe)) - Math.abs(number(a.importe)) || String(a.key).localeCompare(String(b.key)));
@@ -375,7 +380,149 @@ function sumRows(rows) {
   return round2(rows.reduce((sum, row) => sum + number(row?.importe), 0));
 }
 
-export function compareBlindDeclaration(snapshot, declaration, config = {}, retiPendienteEntrada = 0) {
+function retiMovementAmount(rows) {
+  return round2((Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + Math.abs(number(row?.importe)), 0));
+}
+
+function cloneRetiRows(rows, origen) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => Math.abs(number(row?.importe)) > 0.005)
+    .map((row, index) => ({
+      ...row,
+      key: String(row?.key || `${origen}-${index}-${Math.abs(number(row?.importe))}`),
+      importe: round2(Math.abs(number(row?.importe))),
+      origen: row?.origen || origen,
+    }));
+}
+
+function physicalRetiGroup(declaration) {
+  const documentos = [
+    ...(Array.isArray(declaration?.depositario) ? declaration.depositario : [])
+      .filter((row) => number(row?.importe) > 0)
+      .map((row) => ({
+        tipo: 'depositario',
+        referencia: String(row?.referencia || '').trim(),
+        importe: round2(row?.importe),
+      })),
+    ...(Array.isArray(declaration?.retirosSupervisor) ? declaration.retirosSupervisor : [])
+      .filter((row) => number(row?.importe) > 0)
+      .map((row) => ({
+        tipo: 'supervisor',
+        referencia: String(row?.referencia || '').trim(),
+        importe: round2(row?.importe),
+      })),
+  ];
+  return {
+    key: 'cierre-actual',
+    origen: 'cierre_actual',
+    total: round2(documentos.reduce((sum, row) => sum + number(row.importe), 0)),
+    documentos,
+  };
+}
+
+function findMovementSubset(rows, target, tolerance) {
+  const targetCents = Math.round(number(target) * 100);
+  const toleranceCents = Math.max(1, Math.round(Math.max(0, number(tolerance)) * 100));
+  if (Math.abs(targetCents) <= toleranceCents) return [];
+
+  const candidates = rows
+    .map((row, index) => ({ index, cents: Math.round(Math.abs(number(row?.importe)) * 100) }))
+    .filter((item) => item.cents > 0);
+  const states = new Map([[0, []]]);
+
+  for (const candidate of candidates) {
+    const snapshot = [...states.entries()];
+    for (const [sum, indexes] of snapshot) {
+      const next = sum + candidate.cents;
+      if (next > targetCents + toleranceCents) continue;
+      const path = [...indexes, candidate.index];
+      if (Math.abs(next - targetCents) <= toleranceCents) return path;
+      if (!states.has(next)) states.set(next, path);
+    }
+  }
+  return null;
+}
+
+function reconcileRetiMovements(snapshot, declaration, carry = {}, tolerance = 0.01) {
+  const sigmaEntrada = cloneRetiRows(carry?.movimientosSigma, 'pendiente_anterior');
+  const fisicoEntrada = (Array.isArray(carry?.gruposFisicos) ? carry.gruposFisicos : [])
+    .filter((group) => number(group?.total) > 0)
+    .map((group, index) => ({
+      ...group,
+      key: String(group?.key || `fisico-anterior-${index}`),
+      origen: group?.origen || 'pendiente_anterior',
+      total: round2(group?.total),
+    }));
+
+  let nuevosSigma = cloneRetiRows(snapshot?.retirosDocumentos, 'sigma_tramo');
+  if (!nuevosSigma.length && Math.abs(number(snapshot?.retiros)) > 0.005) {
+    nuevosSigma = [{
+      key: 'sigma-total-sin-detalle',
+      origen: 'sigma_tramo',
+      importe: round2(Math.abs(number(snapshot?.retiros))),
+      usuarioNombre: 'Sigma',
+      concepto: 'RETI acumulado del corte (sin detalle individual guardado)',
+      sintetico: true,
+    }];
+  }
+
+  const grupoActual = physicalRetiGroup(declaration);
+  const grupos = [...fisicoEntrada];
+  if (grupoActual.total > 0.005) grupos.push(grupoActual);
+
+  const disponibles = [...sigmaEntrada, ...nuevosSigma];
+  const restantes = disponibles.map((row) => ({ ...row }));
+  const conciliados = [];
+  const fisicoPendiente = [];
+
+  for (const group of grupos) {
+    const subset = findMovementSubset(restantes, group.total, tolerance);
+    if (subset === null) {
+      fisicoPendiente.push(group);
+      continue;
+    }
+    const matched = subset.map((index) => restantes[index]);
+    conciliados.push({ grupoFisico: group, movimientosSigma: matched });
+    for (const index of [...subset].sort((a, b) => b - a)) restantes.splice(index, 1);
+  }
+
+  const currentMatched = grupoActual.total <= 0.005 || conciliados.some((item) => item.grupoFisico?.key === 'cierre-actual');
+  const errorRegistro = restantes.length > 0 && fisicoPendiente.length > 0;
+
+  // Si hay movimientos en ambos lados pero no existe una combinación exacta, no se
+  // reparte la diferencia ni se arrastra: queda como error de registración de este cierre.
+  const sigmaSalida = errorRegistro ? [] : restantes;
+  const fisicoSalida = errorRegistro ? [] : fisicoPendiente;
+  const estado = errorRegistro
+    ? 'ERROR_REGISTRO'
+    : (sigmaSalida.length || fisicoSalida.length ? 'PENDIENTE' : 'CONCILIADO');
+
+  return {
+    estado,
+    errorRegistro,
+    currentMatched,
+    entrada: {
+      movimientosSigma: sigmaEntrada,
+      gruposFisicos: fisicoEntrada,
+    },
+    nuevosSigma,
+    grupoFisicoActual: grupoActual,
+    movimientosSigmaDisponibles: disponibles,
+    conciliados,
+    salida: {
+      movimientosSigma: sigmaSalida,
+      gruposFisicos: fisicoSalida,
+    },
+    movimientosSigmaError: errorRegistro ? restantes : [],
+    gruposFisicosError: errorRegistro ? fisicoPendiente : [],
+    sigmaPendienteEntrada: retiMovementAmount(sigmaEntrada),
+    fisicoPendienteEntrada: round2(fisicoEntrada.reduce((sum, group) => sum + number(group.total), 0)),
+    sigmaPendienteSalida: retiMovementAmount(sigmaSalida),
+    fisicoPendienteSalida: round2(fisicoSalida.reduce((sum, group) => sum + number(group.total), 0)),
+  };
+}
+
+export function compareBlindDeclaration(snapshot, declaration, config = {}, retiCarry = {}) {
   const toleranciaConceptos = Math.max(0, number(config.tolerancia_conceptos ?? 0.01));
   const toleranciaCaja = Math.max(0, number(config.tolerancia_caja ?? 0.01));
 
@@ -393,21 +540,18 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}, reti
   const efectivoRendido = round2(retirosDocumentados + cierreEfectivo);
   const cloverSigma = round2(number(snapshot?.cloverDirecto) + number(snapshot?.naranja));
   const paywaySigma = round2(snapshot?.payway);
-  const retirosSigma = round2(snapshot?.retiros);
   const cuentaCorrienteSigma = round2(snapshot?.cuentaCorriente);
-  const retirosPendienteEntrada = round2(retiPendienteEntrada);
-  // Positivo: Sigma tiene RETI aún no respaldado por documentación física.
-  // Negativo: hay documentación física aún no registrada como RETI en Sigma.
-  const retirosPendienteSalida = round2(retirosPendienteEntrada + retirosSigma - retirosDocumentados);
+  const retiConciliacion = reconcileRetiMovements(snapshot, declaration, retiCarry, toleranciaConceptos);
 
   const diferencias = {
     clover: round2(cloverFisico - cloverSigma),
     payway: round2(paywayFisico - paywaySigma),
-    retiros: round2(-retirosPendienteSalida),
+    // Cero sólo significa que el físico del cierre encontró una combinación exacta.
+    // Nunca se calcula una coincidencia parcial de un movimiento Sigma.
+    retiros: retiConciliacion.currentMatched ? 0 : round2(retirosDocumentados - number(snapshot?.retiros)),
     cuentaCorriente: round2(totalCuentaCorriente - cuentaCorrienteSigma),
   };
 
-  // Resultado neto del tramo: permite distinguir dinero faltante/sobrante de conceptos cruzados.
   const totalFisicoControlado = round2(efectivoRendido + cloverFisico + paywayFisico + totalCuentaCorriente);
   const totalSigmaControlado = round2(
     number(snapshot?.efectivo) + cloverSigma + paywaySigma + cuentaCorrienteSigma
@@ -417,22 +561,29 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}, reti
   const coincidencias = {
     clover: Math.abs(diferencias.clover) <= toleranciaConceptos,
     payway: Math.abs(diferencias.payway) <= toleranciaConceptos,
-    retiros: Math.abs(diferencias.retiros) <= toleranciaConceptos,
+    retiros: retiConciliacion.estado === 'CONCILIADO',
     cuentaCorriente: Math.abs(diferencias.cuentaCorriente) <= toleranciaConceptos,
   };
 
   const conceptosOk = coincidencias.clover && coincidencias.payway && coincidencias.cuentaCorriente;
-  const administrativoOk = coincidencias.retiros;
+  const administrativoOk = retiConciliacion.estado === 'CONCILIADO';
+  const hayPendienteAdministrativo = retiConciliacion.estado === 'PENDIENTE';
+  const errorRegistroAdministrativo = retiConciliacion.estado === 'ERROR_REGISTRO';
   const cajaOk = Math.abs(diferenciaCaja) <= toleranciaCaja;
+  const retirosPendienteEntrada = round2(retiConciliacion.sigmaPendienteEntrada - retiConciliacion.fisicoPendienteEntrada);
+  const retirosPendienteSalida = round2(retiConciliacion.sigmaPendienteSalida - retiConciliacion.fisicoPendienteSalida);
 
   return {
     coincidencias,
     conceptosOk,
     administrativoOk,
+    administrativoEstado: retiConciliacion.estado,
+    hayPendienteAdministrativo,
+    errorRegistroAdministrativo,
     cajaOk,
-    // Un pendiente RETI no bloquea el cierre individual si caja y conceptos operativos están bien.
-    hayDiferencias: !conceptosOk || !cajaOk,
-    hayPendienteAdministrativo: !administrativoOk,
+    // Un movimiento entero pendiente puede pasar al próximo cierre. Una incompatibilidad
+    // entre movimientos completos sí es una diferencia que requiere revisión.
+    hayDiferencias: !conceptosOk || !cajaOk || errorRegistroAdministrativo,
     diferencias,
     diferenciaCaja,
     totalFisicoControlado,
@@ -440,6 +591,9 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}, reti
     retirosDocumentados,
     retirosPendienteEntrada,
     retirosPendienteSalida,
+    retirosSigmaPendienteSalida: retiConciliacion.sigmaPendienteSalida,
+    retirosFisicoPendienteSalida: retiConciliacion.fisicoPendienteSalida,
+    retiConciliacion,
     totalDepositario,
     totalSupervisor,
     cierreEfectivo,
