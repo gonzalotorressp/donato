@@ -99,6 +99,7 @@ export default async function handler(request, response) {
       const maxNumero = cierresUsuario.reduce((max, item) => Math.max(max, Number(item.cierre_nro || 0)), 0);
       return {
         ...journey,
+        venta: Number(acumuladoActual.venta || 0),
         tieneActividadNueva,
         proximoCierreNumero: editable ? Number(editable.cierre_nro || Math.max(1, maxNumero)) : maxNumero + 1,
         cierreEditableId: editable?.id || null,
