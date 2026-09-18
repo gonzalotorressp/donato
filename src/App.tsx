@@ -1252,7 +1252,7 @@ export default function App({ profile, onSignOut }: Props) {
                 <div><p className="eyebrow">CONTROL RÁPIDO · SÓLO SIGMA</p><h2>Cómo da la caja según registración</h2></div>
                 <Banknote size={22} />
               </div>
-              <p className="muted-copy">No compara contra efectivo, tickets ni documentación física. El efectivo teórico restante es Efectivo CODO menos RETI asignados al cajero.</p>
+              <p className="muted-copy">No compara contra efectivo, tickets ni documentación física. El control reconstruye el cierre registrado en Sigma: Efectivo CODO menos RETI asignados al turno. Un saldo positivo es faltante; uno negativo es sobrante.</p>
               {quickControlCriterion ? <p className="muted-copy"><strong>Cruce RETI:</strong> {quickControlCriterion}.</p> : null}
               {loadingHistory ? (
                 <div className="empty-state"><Clock3 /><div><strong>Reconstruyendo control…</strong><p>Cruzando secuencia contable y horarios de venta.</p></div></div>
@@ -1267,8 +1267,13 @@ export default function App({ profile, onSignOut }: Props) {
                         <span>Efectivo CODO {money.format(item.efectivoCodo)} · RETI {money.format(item.retirosAsignados)} · Clover {money.format(item.clover)} · Payway {money.format(item.payway)} · Naranja {money.format(item.naranja)} · Cta. Cte. {money.format(item.cuentaCorriente)}</span>
                         {item.retiros.length ? <small>{item.retiros.map((r) => `RETI ${r.id} ${money.format(r.importe)} ~${r.horaAproximada || 's/h'} (${r.confianza})`).join(' · ')}</small> : null}
                       </div>
-                      <div className={`cashier-state ${item.efectivoTeoricoRestante < -0.01 ? 'review' : 'done'}`}>
-                        Caja Sigma {money.format(item.efectivoTeoricoRestante)}
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <div className="cashier-state done">Caja Sigma {money.format(item.efectivoTeoricoRestante)}</div>
+                        <div className={`cashier-state ${item.estadoDiferencia === 'OK' ? 'done' : 'review'}`}>
+                          {item.estadoDiferencia === 'OK'
+                            ? 'Sin diferencia'
+                            : `${item.estadoDiferencia === 'FALTANTE' ? 'Faltante' : 'Sobrante'} ${money.format(Math.abs(item.diferenciaSigma))}`}
+                        </div>
                       </div>
                     </div>
                   ))}
