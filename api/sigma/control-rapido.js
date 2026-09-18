@@ -31,90 +31,84 @@ function round2(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 }
 
-function buildRetiAssignments(sales, accounting, fecha, journeys) {
-  const cashAccountByUser = new Map(
-    journeys.filter((j) => j.cajaCodigo).map((j) => [Number(j.usuarioCodigo), 1259 + Number(j.cajaCodigo)])
-  );
-  const anchorsByCashAccount = new Map();
+async function fetchCachedControlRows(request, fecha) {
+  const base = process.env.VITE_SUPABASE_URL;
+  const key = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const auth = request.headers?.authorization || request.headers?.Authorization || '';
+  if (!base || !key || !String(auth).startsWith('Bearer ')) return [];
+  const response = await fetch(`${base}/rest/v1/rpc/donato_control_rapido_contable`, {
+    method: 'POST',
+    headers: { apikey: key, Authorization: auth, 'content-type': 'application/json' },
+    body: JSON.stringify({ p_fecha: fecha }),
+  });
+  if (!response.ok) return [];
+  const rows = await response.json();
+  return Array.isArray(rows) ? rows : [];
+}
 
-  for (const journey of journeys) {
-    const user = Number(journey.usuarioCodigo);
-    const cashAccount = cashAccountByUser.get(user);
-    if (!cashAccount) continue;
+function buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows = []) {
+  const cacheVentIds = [...new Set(cachedRows
+    .filter((r) => String(r.comprobante_codigo || '').toUpperCase() === 'VENT')
+    .map((r) => Number(r.id)).filter(Number.isFinite))].sort((a, b) => a - b);
+  const allSaleTimes = sales
+    .filter((r) => r.fecha === fecha)
+    .map((r) => secondsFromTime(r.hora)).filter((v) => v !== null)
+    .sort((a, b) => a - b);
 
-    const ventIds = [...new Set(accounting
-      .filter((row) => row.fecha === fecha
-        && Number(row.usuarioCodigo) === user
-        && String(row.comprobanteCodigo || '').trim().toUpperCase() === 'VENT'
-        && Number(row.cuentaCodigo) === 4000)
-      .map(rowId).filter(Boolean))].sort((a, b) => a - b);
-
-    const saleTimes = sales
-      .filter((row) => row.fecha === fecha && Number(row.usuario) === user)
-      .map((row) => secondsFromTime(row.hora)).filter((v) => v !== null)
-      .sort((a, b) => a - b);
-
-    const count = Math.min(ventIds.length, saleTimes.length);
-    if (!count) continue;
-    const anchors = anchorsByCashAccount.get(cashAccount) || [];
-    for (let index = 0; index < count; index += 1) {
-      const vi = count === 1 ? 0 : Math.round(index * (ventIds.length - 1) / (count - 1));
-      const si = count === 1 ? 0 : Math.round(index * (saleTimes.length - 1) / (count - 1));
-      anchors.push({ id: ventIds[vi], seconds: saleTimes[si], user });
-    }
-    anchorsByCashAccount.set(cashAccount, anchors);
+  const globalAnchors = [];
+  const anchorCount = Math.min(cacheVentIds.length, allSaleTimes.length);
+  for (let i = 0; i < anchorCount; i += 1) {
+    const vi = anchorCount === 1 ? 0 : Math.round(i * (cacheVentIds.length - 1) / (anchorCount - 1));
+    const si = anchorCount === 1 ? 0 : Math.round(i * (allSaleTimes.length - 1) / (anchorCount - 1));
+    globalAnchors.push({ id: cacheVentIds[vi], seconds: allSaleTimes[si] });
   }
 
-  for (const anchors of anchorsByCashAccount.values()) anchors.sort((a, b) => a.id - b.id);
+  const shifts = journeys.map((j) => {
+    const times = sales.filter((r) => r.fecha === fecha && Number(r.usuario) === Number(j.usuarioCodigo))
+      .map((r) => secondsFromTime(r.hora)).filter((v) => v !== null).sort((a, b) => a - b);
+    return { ...j, start: times[0] ?? null, end: times[times.length - 1] ?? null };
+  });
+
+  const sourceRetis = cachedRows.length
+    ? cachedRows.filter((r) => String(r.comprobante_codigo || '').toUpperCase() === 'RETI')
+        .map((r) => ({ id: Number(r.id), cashAccount: Number(r.cuenta_codigo), importe: Math.abs(Number(r.importe || 0)), registradoPorCodigo: null, registradoPorNombre: null }))
+    : accounting.filter((row) => row.fecha === fecha && String(row.comprobanteCodigo || '').trim().toUpperCase() === 'RETI')
+        .map((row) => ({ id: rowId(row), cashAccount: Number(row.cuentaCodigo), importe: amount(row), registradoPorCodigo: Number(row.usuarioCodigo) || null, registradoPorNombre: String(row.usuarioNombre || '').trim() || null }));
 
   const assignments = [];
-  for (const row of accounting) {
-    if (row.fecha !== fecha || String(row.comprobanteCodigo || '').trim().toUpperCase() !== 'RETI') continue;
-    const cashAccount = Number(row.cuentaCodigo);
-    if (cashAccount < 1260 || cashAccount > 1263) continue;
-    const id = rowId(row);
-    if (!id) continue;
-    const anchors = anchorsByCashAccount.get(cashAccount) || [];
-    if (!anchors.length) {
-      assignments.push({ id, cajaCodigo: cashAccount - 1259, importe: round2(amount(row)), usuarioCodigo: null, horaAproximada: null, confianza: 'SIN_ANCLA' });
-      continue;
+  for (const retiro of sourceRetis) {
+    if (!retiro.id || retiro.cashAccount < 1260 || retiro.cashAccount > 1263) continue;
+    let before = null, after = null;
+    for (const anchor of globalAnchors) {
+      if (anchor.id <= retiro.id) before = anchor;
+      if (anchor.id >= retiro.id) { after = anchor; break; }
     }
-
-    let before = null;
-    let after = null;
-    for (const anchor of anchors) {
-      if (anchor.id <= id) before = anchor;
-      if (anchor.id >= id) { after = anchor; break; }
-    }
-
-    let chosen = null;
-    let confidence = 'BAJA';
-    if (before && after && before.user === after.user) {
-      chosen = before;
-      confidence = 'ALTA';
-    } else if (before && after) {
-      chosen = (id - before.id) <= (after.id - id) ? before : after;
-      confidence = 'MEDIA';
-    } else {
-      chosen = before || after;
-      confidence = 'BAJA';
-    }
-
-    let estimated = chosen?.seconds ?? null;
+    let estimated = before?.seconds ?? after?.seconds ?? null;
+    let confidence = before && after ? 'ALTA' : (before || after ? 'MEDIA' : 'SIN_ANCLA');
     if (before && after && before.id !== after.id) {
-      const ratio = (id - before.id) / (after.id - before.id);
-      estimated = before.seconds + ratio * (after.seconds - before.seconds);
+      estimated = before.seconds + ((retiro.id - before.id) / (after.id - before.id)) * (after.seconds - before.seconds);
+    }
+
+    const cajaCodigo = retiro.cashAccount - 1259;
+    const sameCaja = shifts.filter((j) => Number(j.cajaCodigo) === cajaCodigo && j.start !== null && j.end !== null);
+    let chosen = null;
+    if (estimated !== null) {
+      const inside = sameCaja.filter((j) => estimated >= j.start - 900 && estimated <= j.end + 1800);
+      if (inside.length === 1) chosen = inside[0];
+      else if (inside.length > 1) {
+        chosen = inside.sort((a, b) => Math.abs(estimated - b.end) - Math.abs(estimated - a.end))[0];
+        confidence = 'MEDIA';
+      } else if (sameCaja.length) {
+        chosen = [...sameCaja].sort((a, b) => Math.min(Math.abs(estimated-a.start),Math.abs(estimated-a.end))-Math.min(Math.abs(estimated-b.start),Math.abs(estimated-b.end)))[0];
+        confidence = 'BAJA';
+      }
     }
 
     assignments.push({
-      id,
-      cajaCodigo: cashAccount - 1259,
-      importe: round2(amount(row)),
-      usuarioCodigo: chosen?.user ?? null,
-      horaAproximada: timeFromSeconds(estimated),
-      confianza: confidence,
-      registradoPorCodigo: Number(row.usuarioCodigo) || null,
-      registradoPorNombre: String(row.usuarioNombre || '').trim() || null,
+      id: retiro.id, cajaCodigo, importe: round2(retiro.importe),
+      usuarioCodigo: chosen?.usuarioCodigo ?? null,
+      horaAproximada: timeFromSeconds(estimated), confianza: confidence,
+      registradoPorCodigo: retiro.registradoPorCodigo, registradoPorNombre: retiro.registradoPorNombre,
     });
   }
   return assignments.sort((a, b) => a.id - b.id);
@@ -169,7 +163,7 @@ export default async function handler(request, response) {
     response.setHeader('Cache-Control', 'no-store');
     return response.status(200).json({
       fecha,
-      criterioReti: 'ID contable RETI cruzado con secuencia VENT y horarios de venta del cajero en la misma caja',
+      criterioReti: 'ID contable RETI del cache cruzado con secuencia global VENT, horarios de venta y turno del cajero en la misma caja',
       controles,
       retirosSinAsignar,
       generadoAt: new Date().toISOString(),
