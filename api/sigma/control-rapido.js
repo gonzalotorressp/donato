@@ -55,12 +55,18 @@ function buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows = [
     .map((r) => secondsFromTime(r.hora)).filter((v) => v !== null)
     .sort((a, b) => a - b);
 
+  // El ID contable es monotónico durante la jornada, pero la cantidad de VENT contables
+  // no coincide necesariamente 1:1 con las filas del reporte de ventas. Por eso usamos
+  // los extremos de ambas secuencias como anclas temporales y no emparejamos por índice.
   const globalAnchors = [];
-  const anchorCount = Math.min(cacheVentIds.length, allSaleTimes.length);
-  for (let i = 0; i < anchorCount; i += 1) {
-    const vi = anchorCount === 1 ? 0 : Math.round(i * (cacheVentIds.length - 1) / (anchorCount - 1));
-    const si = anchorCount === 1 ? 0 : Math.round(i * (allSaleTimes.length - 1) / (anchorCount - 1));
-    globalAnchors.push({ id: cacheVentIds[vi], seconds: allSaleTimes[si] });
+  if (cacheVentIds.length && allSaleTimes.length) {
+    globalAnchors.push({ id: cacheVentIds[0], seconds: allSaleTimes[0] });
+    if (cacheVentIds.length > 1 && allSaleTimes.length > 1) {
+      globalAnchors.push({
+        id: cacheVentIds[cacheVentIds.length - 1],
+        seconds: allSaleTimes[allSaleTimes.length - 1],
+      });
+    }
   }
 
   const shifts = journeys.map((j) => {
@@ -163,7 +169,13 @@ export default async function handler(request, response) {
     response.setHeader('Cache-Control', 'no-store');
     return response.status(200).json({
       fecha,
-      criterioReti: 'ID contable RETI del cache cruzado con secuencia global VENT, horarios de venta y turno del cajero en la misma caja',
+      criterioReti: 'ID contable RETI interpolado entre el primer y último VENT del día y asignado al turno horario del cajero en la misma caja',
+      diagnosticoReti: {
+        cacheRows: cachedRows.length,
+        retirosDisponibles,
+        retirosAsignados: retirosAsignadosCantidad,
+        retirosSinAsignar: retiros.filter((r) => !r.usuarioCodigo).length,
+      },
       controles,
       retirosSinAsignar,
       generadoAt: new Date().toISOString(),
