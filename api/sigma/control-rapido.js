@@ -6,7 +6,7 @@ import {
 import { requireAuthenticatedUser, userHasCapability } from '../../server/supabase-auth.js';
 
 function rowId(row) {
-  const value = Number(row?.id ?? row?.ID);
+  const value = Number(row?.id ?? row?.ID ?? row?.Id);
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
@@ -24,7 +24,7 @@ function timeFromSeconds(value) {
 }
 
 function amount(row) {
-  return Math.abs(Number(row?.monto || row?.haber || row?.debe || 0));
+  return Math.abs(Number(row?.monto ?? row?.MONTO ?? row?.haber ?? row?.HABER ?? row?.debe ?? row?.DEBE ?? 0));
 }
 
 function round2(value) {
@@ -157,6 +157,10 @@ export default async function handler(request, response) {
         pendienteContado: round2(snapshot.pendienteContado),
         retirosAsignados,
         efectivoTeoricoRestante: round2(Number(snapshot.efectivo || 0) - retirosAsignados),
+        diferenciaSigma: round2(Number(snapshot.efectivo || 0) - retirosAsignados),
+        estadoDiferencia: Math.abs(round2(Number(snapshot.efectivo || 0) - retirosAsignados)) <= 0.01
+          ? 'OK'
+          : round2(Number(snapshot.efectivo || 0) - retirosAsignados) > 0 ? 'FALTANTE' : 'SOBRANTE',
         retiros: asignados,
       };
     });
