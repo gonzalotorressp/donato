@@ -162,6 +162,8 @@ type QuickControl = {
   pendienteContado: number;
   retirosAsignados: number;
   efectivoTeoricoRestante: number;
+  diferenciaSigma: number;
+  estadoDiferencia: 'OK' | 'FALTANTE' | 'SOBRANTE';
   retiros: Array<{ id: number; importe: number; horaAproximada?: string | null; confianza: string; registradoPorNombre?: string | null }>;
 };
 
