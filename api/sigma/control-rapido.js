@@ -132,8 +132,11 @@ export default async function handler(request, response) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return response.status(400).json({ error: 'Fecha inválida' });
 
     const [sales, accounting] = await fetchTodayReports(fecha);
+    const cachedRows = await fetchCachedControlRows(request, fecha);
     const journeys = buildBlindJourneys(sales, accounting, fecha);
-    const retiros = buildRetiAssignments(sales, accounting, fecha, journeys);
+    const retiros = buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows);
+    const retirosDisponibles = retiros.length;
+    const retirosAsignadosCantidad = retiros.filter((r) => r.usuarioCodigo).length;
 
     const controles = journeys.map((journey) => {
       const snapshot = buildUserSnapshot(sales, accounting, fecha, journey.usuarioCodigo, journey.cajaCodigo);
