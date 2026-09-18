@@ -195,7 +195,22 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .sidebar-brand { padding: 0; }
   .sidebar-brand .brand-copy { display: none; }
   .sidebar-brand .brand-mark { width: 48px; height: 48px; }
-  .sidebar nav { display: none; }
+  .sidebar nav {
+    display: flex;
+    order: 3;
+    width: 100%;
+    gap: 6px;
+    overflow-x: auto;
+    padding-top: 8px;
+  }
+  .sidebar { flex-wrap: wrap; }
+  .sidebar nav .nav-item {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 9px 11px;
+    font-size: 13px;
+  }
+  .sidebar nav .nav-item:disabled { display: none; }
   .sidebar-user { margin: 0 0 0 auto; padding: 0; border: 0; text-align: right; }
   .sidebar-user span, .sidebar-user strong { display: none; }
   .workspace { padding: 20px 14px; }
