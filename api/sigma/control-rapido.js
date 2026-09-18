@@ -99,14 +99,30 @@ function buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows = [
     const sameCaja = shifts.filter((j) => Number(j.cajaCodigo) === cajaCodigo && j.start !== null && j.end !== null);
     let chosen = null;
     if (estimated !== null) {
-      const inside = sameCaja.filter((j) => estimated >= j.start - 900 && estimated <= j.end + 1800);
-      if (inside.length === 1) chosen = inside[0];
-      else if (inside.length > 1) {
-        chosen = inside.sort((a, b) => Math.abs(estimated - b.end) - Math.abs(estimated - a.end))[0];
+      const ordered = [...sameCaja].sort((a, b) => a.start - b.start);
+      const inside = ordered.filter((j) => estimated >= j.start && estimated <= j.end);
+      if (inside.length === 1) {
+        chosen = inside[0];
+      } else if (inside.length > 1) {
+        chosen = [...inside].sort((a, b) => b.start - a.start)[0];
         confidence = 'MEDIA';
-      } else if (sameCaja.length) {
-        chosen = [...sameCaja].sort((a, b) => Math.min(Math.abs(estimated-a.start),Math.abs(estimated-a.end))-Math.min(Math.abs(estimated-b.start),Math.abs(estimated-b.end)))[0];
-        confidence = 'BAJA';
+      } else if (ordered.length) {
+        // Regla operativa Donato: un RETI entre turnos pertenece al cajero anterior.
+        // Nadie entrega efectivo antes de comenzar a vender; normalmente es el cierre
+        // o una rendición posterior al último comprobante de ese turno.
+        const previous = ordered.filter((j) => j.end < estimated).sort((a, b) => b.end - a.end)[0] || null;
+        const next = ordered.find((j) => j.start > estimated) || null;
+        if (previous && next) {
+          chosen = previous;
+          confidence = 'ALTA';
+        } else if (previous) {
+          chosen = previous;
+          confidence = 'MEDIA';
+        } else if (next) {
+          // Antes del primer turno del día no se imputa automáticamente al cajero futuro.
+          chosen = null;
+          confidence = 'SIN_ASIGNAR_PRE_TURNO';
+        }
       }
     }
 
