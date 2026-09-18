@@ -142,6 +142,17 @@ export default async function handler(request, response) {
       const snapshot = buildUserSnapshot(sales, accounting, fecha, journey.usuarioCodigo, journey.cajaCodigo);
       const asignados = retiros.filter((r) => Number(r.usuarioCodigo) === Number(journey.usuarioCodigo));
       const retirosAsignados = round2(asignados.reduce((sum, r) => sum + Number(r.importe || 0), 0));
+      // Control histórico puramente Sigma:
+      // Venta - RETI - Clover - Payway - Naranja - Cuenta corriente.
+      // Positivo = efectivo faltante por rendir/retirar; negativo = sobrante.
+      const diferenciaSigma = round2(
+        Number(snapshot.venta || 0)
+        - retirosAsignados
+        - Number(snapshot.cloverDirecto || 0)
+        - Number(snapshot.payway || 0)
+        - Number(snapshot.naranja || 0)
+        - Number(snapshot.cuentaCorriente || 0)
+      );
       return {
         fecha,
         usuarioCodigo: journey.usuarioCodigo,
@@ -160,10 +171,10 @@ export default async function handler(request, response) {
         pendienteContado: round2(snapshot.pendienteContado),
         retirosAsignados,
         efectivoTeoricoRestante: round2(Number(snapshot.efectivo || 0) - retirosAsignados),
-        diferenciaSigma: round2(Number(snapshot.efectivo || 0) - retirosAsignados),
-        estadoDiferencia: Math.abs(round2(Number(snapshot.efectivo || 0) - retirosAsignados)) <= 0.01
+        diferenciaSigma,
+        estadoDiferencia: Math.abs(diferenciaSigma) <= 0.01
           ? 'OK'
-          : round2(Number(snapshot.efectivo || 0) - retirosAsignados) > 0 ? 'FALTANTE' : 'SOBRANTE',
+          : diferenciaSigma > 0 ? 'FALTANTE' : 'SOBRANTE',
         retiros: asignados,
       };
     });
