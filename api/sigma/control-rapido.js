@@ -116,30 +116,8 @@ function buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows = [
     const sameCaja = shifts.filter((j) => Number(j.cajaCodigo) === cajaCodigo && j.start !== null && j.end !== null);
     let chosen = null;
 
-    // Fuente primaria de asignación: secuencia contable de la propia caja.
-    // Un cajero puede operar más de una caja en el mismo día, por lo que no alcanza
-    // con el único cajaCodigo resumido de su jornada. Buscamos CODO de esa cuenta
-    // física alrededor del RETI y usamos el operador anterior; si ambos lados son
-    // el mismo usuario la atribución es inequívoca.
-    const codoCaja = accounting
-      .filter((row) =>
-        row.fecha === fecha
-        && String(row.comprobanteCodigo || '').trim().toUpperCase() === 'CODO'
-        && Number(row.cuentaCodigo) === retiro.cashAccount
-        && rowId(row)
-        && Number(row.usuarioCodigo)
-      )
-      .map((row) => ({ id: rowId(row), user: Number(row.usuarioCodigo), name: String(row.usuarioNombre || '').trim() }))
-      .sort((a, b) => a.id - b.id);
-    const codoPrev = [...codoCaja].reverse().find((row) => row.id < retiro.id) || null;
-    const codoNext = codoCaja.find((row) => row.id > retiro.id) || null;
-    const accountingUser = codoPrev?.user || (codoPrev && codoNext && codoPrev.user === codoNext.user ? codoPrev.user : null);
-    if (accountingUser) {
-      const journey = journeys.find((j) => Number(j.usuarioCodigo) === accountingUser);
-      chosen = journey || { usuarioCodigo: accountingUser, usuarioNombre: codoPrev?.name || '' };
-      confidence = codoNext && codoPrev?.user === codoNext.user ? 'ALTA' : 'MEDIA';
-    }
-
+    // Trazabilidad estricta: un RETI sólo se asigna automáticamente a una
+    // jornada de la misma caja. Cruces con otra caja se sugieren, nunca se aplican.
     if (!chosen && estimated !== null) {
       const ordered = [...sameCaja].sort((a, b) => a.start - b.start);
       const inside = ordered.filter((j) => estimated >= j.start && estimated <= j.end);
@@ -219,6 +197,26 @@ export default async function handler(request, response) {
     const retirosDisponibles = retiros.length;
     const retirosAsignadosCantidad = retiros.filter((r) => r.usuarioCodigo).length;
 
+    const correctionSuggestions = [];
+    for (const retiro of retiros) {
+      const sec = secondsFromTime(retiro.horaAproximada);
+      if (sec === null) continue;
+      for (const journey of journeys) {
+        if (!journey.cajaCodigo || Number(journey.cajaCodigo) === Number(retiro.cajaCodigo)) continue;
+        const times = sales.filter((r) => r.fecha === fecha && Number(r.usuario) === Number(journey.usuarioCodigo))
+          .map((r) => secondsFromTime(r.hora)).filter((v) => v !== null).sort((x, y) => x - y);
+        if (!times.length || sec < times[0] || sec > times[times.length - 1]) continue;
+        correctionSuggestions.push({
+          retiroId: retiro.id, importe: retiro.importe,
+          cajaRegistrada: retiro.cajaCodigo, cajaSugerida: journey.cajaCodigo,
+          usuarioCodigo: journey.usuarioCodigo, usuarioNombre: journey.usuarioNombre,
+          horaAproximada: retiro.horaAproximada,
+          motivo: 'RETI registrado en otra caja durante la jornada activa del cajero',
+          estado: 'SUGERIDA',
+        });
+      }
+    }
+
     const controles = journeys.map((journey) => {
       const snapshot = buildUserSnapshot(sales, accounting, fecha, journey.usuarioCodigo, journey.cajaCodigo);
       const asignados = retiros.filter((r) => Number(r.usuarioCodigo) === Number(journey.usuarioCodigo));
@@ -234,6 +232,7 @@ export default async function handler(request, response) {
         - Number(snapshot.naranja || 0)
         - Number(snapshot.cuentaCorriente || 0)
       );
+      const sugerenciasCorreccion = correctionSuggestions.filter((x) => Number(x.usuarioCodigo) === Number(journey.usuarioCodigo));
       return {
         fecha,
         usuarioCodigo: journey.usuarioCodigo,
@@ -257,13 +256,14 @@ export default async function handler(request, response) {
           ? 'OK'
           : diferenciaSigma > 0 ? 'FALTANTE' : 'SOBRANTE',
         retiros: asignados,
+        sugerenciasCorreccion,
       };
     });
 
     const retirosSinAsignar = retiros.filter((r) => !r.usuarioCodigo);
     const payload = {
       fecha,
-      criterioReti: 'ID contable RETI interpolado entre el primer y último VENT del día y asignado al turno horario del cajero en la misma caja',
+      criterioReti: 'RETI asignado sólo a jornadas de la misma caja; cruces de horario con otra caja se muestran como posibles correcciones',
       diagnosticoReti: {
         cacheRows: cachedRows.length,
         retirosDisponibles,
