@@ -165,6 +165,7 @@ type QuickControl = {
   diferenciaSigma: number;
   estadoDiferencia: 'OK' | 'FALTANTE' | 'SOBRANTE';
   retiros: Array<{ id: number; importe: number; horaAproximada?: string | null; confianza: string; registradoPorNombre?: string | null }>;
+  sugerenciasCorreccion?: Array<{ retiroId: number; importe: number; cajaRegistrada: number; cajaSugerida: number; horaAproximada?: string | null; motivo: string; estado: string }>;
 };
 
 type FullComparison = {
@@ -1274,6 +1275,11 @@ export default function App({ profile, onSignOut }: Props) {
                         <span>Caja {item.cajaCodigo || '—'} · {item.primeraVentaHora || '—'} a {item.ultimaVentaHora || '—'} · Venta {money.format(item.venta)}</span>
                         <span>Efectivo CODO {money.format(item.efectivoCodo)} · RETI {money.format(item.retirosAsignados)} · Clover {money.format(item.clover)} · Payway {money.format(item.payway)} · Naranja {money.format(item.naranja)} · Cta. Cte. {money.format(item.cuentaCorriente)}</span>
                         {item.retiros.length ? <small>{item.retiros.map((r) => `RETI ${r.id} ${money.format(r.importe)} ~${r.horaAproximada || 's/h'} (${r.confianza})`).join(' · ')}</small> : null}
+                        {item.sugerenciasCorreccion?.length ? (
+                          <small style={{ fontWeight: 700 }}>
+                            Posible corrección: {item.sugerenciasCorreccion.map((r) => `RETI ${r.retiroId} ${money.format(r.importe)} registrado Caja ${r.cajaRegistrada} → sugerido Caja ${r.cajaSugerida} ~${r.horaAproximada || 's/h'}`).join(' · ')}
+                          </small>
+                        ) : null}
                       </div>
                       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                         <div className="cashier-state done">Saldo efectivo {money.format(item.efectivoTeoricoRestante)}</div>
