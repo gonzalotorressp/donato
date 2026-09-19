@@ -437,66 +437,71 @@ export default function App({ profile, onSignOut }: Props) {
     }
   }
 
-  async function loadHistory() {
+  async function loadHistory(recalcular = false) {
     if (!supabase) return;
     setLoadingHistory(true);
     setHistoryError(null);
     try {
       const closureQuery = historyDate
-        ? supabase
-            .from('donato_cierres_caja')
-            .select(closureSelect)
-            .eq('fecha', historyDate)
-            .order('created_at', { ascending: false })
-        : supabase
-            .from('donato_cierres_caja')
-            .select(closureSelect)
-            .order('fecha', { ascending: false })
-            .order('created_at', { ascending: false })
-            .limit(200);
+        ? supabase.from('donato_cierres_caja').select(closureSelect).eq('fecha', historyDate).order('created_at', { ascending: false })
+        : supabase.from('donato_cierres_caja').select(closureSelect).order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(200);
 
-      const historyRequests: Promise<any>[] = [closureQuery as unknown as Promise<any>];
-      if (historyDate) {
-        const headers = await authHeaders();
-        historyRequests.push(fetch(`/api/sigma/jornadas?fecha=${encodeURIComponent(historyDate)}`, {
-          headers,
-          cache: 'no-store',
-        }));
-        if (profile.rol === 'administrador') {
-          historyRequests.push(fetch(`/api/sigma/control-rapido?fecha=${encodeURIComponent(historyDate)}`, {
-            headers,
-            cache: 'no-store',
-          }));
-        }
+      const headers = historyDate ? await authHeaders() : null;
+      const quickPromise = historyDate && profile.rol === 'administrador'
+        ? fetch(`/api/sigma/control-rapido?fecha=${encodeURIComponent(historyDate)}${recalcular ? '&recalcular=1' : ''}`, { headers: headers!, cache: 'no-store' })
+        : null;
+      const sigmaPromise = historyDate && profile.rol !== 'administrador'
+        ? fetch(`/api/sigma/jornadas?fecha=${encodeURIComponent(historyDate)}`, { headers: headers!, cache: 'no-store' })
+        : null;
+
+      const [closureResult, quickResponse, sigmaResponse] = await Promise.all([
+        closureQuery as unknown as Promise<any>,
+        quickPromise,
+        sigmaPromise,
+      ]);
+      if (closureResult.error) throw new Error(closureResult.error.message);
+      const closuresForDate = (closureResult.data ?? []) as unknown as ClosureRow[];
+      setHistoryClosures(closuresForDate);
+
+      if (!historyDate) {
+        setHistoryJourneys([]);
+        setQuickControls([]);
+        setQuickControlUnassigned([]);
+        setQuickControlCriterion('');
+        return;
       }
 
-      const [closureResult, sigmaResponse, quickResponse] = await Promise.all(historyRequests);
-      if (closureResult.error) throw new Error(closureResult.error.message);
-      setHistoryClosures((closureResult.data ?? []) as unknown as ClosureRow[]);
-
-      if (historyDate && sigmaResponse) {
+      if (quickResponse) {
+        if (!quickResponse.ok) {
+          const body = await quickResponse.json().catch(() => ({}));
+          throw new Error(body.error || 'No se pudo generar el control rápido');
+        }
+        const quickData = await quickResponse.json();
+        const controls = Array.isArray(quickData.controles) ? quickData.controles : [];
+        setQuickControls(controls);
+        setQuickControlUnassigned(Array.isArray(quickData.retirosSinAsignar) ? quickData.retirosSinAsignar : []);
+        setQuickControlCriterion(String(quickData.criterioReti || ''));
+        setHistoryJourneys(controls.map((item: QuickControl) => {
+          const userClosures = closuresForDate.filter((c) => Number(c.usuario_sigma_codigo) === Number(item.usuarioCodigo) && c.estado !== 'CANCELADO');
+          return {
+            fecha: historyDate,
+            usuarioCodigo: item.usuarioCodigo,
+            usuarioNombre: item.usuarioNombre,
+            cajaCodigo: item.cajaCodigo,
+            ultimaVentaHora: item.ultimaVentaHora,
+            cantidadVentas: item.cantidadVentas,
+            venta: item.venta,
+            tieneActividadNueva: userClosures.length === 0,
+            proximoCierreNumero: userClosures.length + 1,
+          } as Journey;
+        }));
+      } else if (sigmaResponse) {
         if (!sigmaResponse.ok) {
           const body = await sigmaResponse.json().catch(() => ({}));
           throw new Error(body.error || 'No se pudo consultar la jornada histórica en Sigma');
         }
         const sigmaData = await sigmaResponse.json();
         setHistoryJourneys(Array.isArray(sigmaData.jornadas) ? sigmaData.jornadas : []);
-        if (quickResponse) {
-          if (!quickResponse.ok) {
-            const body = await quickResponse.json().catch(() => ({}));
-            throw new Error(body.error || 'No se pudo generar el control rápido de Sigma');
-          }
-          const quickData = await quickResponse.json();
-          setQuickControls(Array.isArray(quickData.controles) ? quickData.controles : []);
-          setQuickControlUnassigned(Array.isArray(quickData.retirosSinAsignar) ? quickData.retirosSinAsignar : []);
-          setQuickControlCriterion(String(quickData.criterioReti || ''));
-        } else {
-          setQuickControls([]);
-          setQuickControlUnassigned([]);
-          setQuickControlCriterion('');
-        }
-      } else {
-        setHistoryJourneys([]);
         setQuickControls([]);
         setQuickControlUnassigned([]);
         setQuickControlCriterion('');
@@ -1242,6 +1247,7 @@ export default function App({ profile, onSignOut }: Props) {
             </div>
             <div className="section-title-row">
               <input className="text-input" type="date" value={historyDate} onChange={(event) => setHistoryDate(event.target.value)} />
+              {historyDate && profile.rol === 'administrador' ? <button className="add-row-button" type="button" disabled={loadingHistory} onClick={() => void loadHistory(true)}>Recalcular desde Sigma</button> : null}
               {historyDate ? <button className="add-row-button" type="button" onClick={() => setHistoryDate('')}>Ver todos</button> : null}
             </div>
           </section>
@@ -1257,7 +1263,7 @@ export default function App({ profile, onSignOut }: Props) {
               <p className="muted-copy">No compara contra documentación física. El control histórico reconstruye el cierre registrado en Sigma: Venta − RETI − Clover − Payway − Naranja − Cuenta corriente. Un resultado positivo es faltante; uno negativo es sobrante.</p>
               {quickControlCriterion ? <p className="muted-copy"><strong>Cruce RETI:</strong> {quickControlCriterion}.</p> : null}
               {loadingHistory ? (
-                <div className="empty-state"><Clock3 /><div><strong>Reconstruyendo control…</strong><p>Cruzando secuencia contable y horarios de venta.</p></div></div>
+                <div className="empty-state"><Clock3 /><div><strong>Reconstruyendo control…</strong><p>Cargando reconstrucción histórica guardada.</p></div></div>
               ) : quickControls.length ? (
                 <div className="cashier-list">
                   {quickControls.map((item) => (
@@ -1296,7 +1302,7 @@ export default function App({ profile, onSignOut }: Props) {
                 <ReceiptText size={22} />
               </div>
               {loadingHistory ? (
-                <div className="empty-state"><Clock3 /><div><strong>Consultando Sigma…</strong><p>Reconstruyendo ventas y cierres pendientes de la fecha.</p></div></div>
+                <div className="empty-state"><Clock3 /><div><strong>Cargando histórico…</strong><p>Leyendo la reconstrucción guardada del día.</p></div></div>
               ) : historyJourneys.length ? (
                 <div className="cashier-list">
                   {historyJourneys.map((journey) => {
