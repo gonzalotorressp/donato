@@ -2,6 +2,7 @@ import {
   buildBlindJourneys,
   buildUserSnapshot,
   fetchTodayReports,
+  argentinaToday,
 } from '../../server/sigma.js';
 import { requireAuthenticatedUser, userHasCapability } from '../../server/supabase-auth.js';
 
@@ -29,6 +30,22 @@ function amount(row) {
 
 function round2(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+
+async function cacheRpc(request, fn, body) {
+  const base = process.env.VITE_SUPABASE_URL;
+  const key = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const auth = request.headers?.authorization || request.headers?.Authorization || '';
+  if (!base || !key || !String(auth).startsWith('Bearer ')) return null;
+  const res = await fetch(`${base}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: { apikey: key, Authorization: auth, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : true;
 }
 
 async function fetchCachedControlRows(request, fecha) {
@@ -183,6 +200,16 @@ export default async function handler(request, response) {
     const fecha = typeof request.query?.fecha === 'string' ? request.query.fecha : '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return response.status(400).json({ error: 'Fecha inválida' });
 
+    const forceRefresh = String(request.query?.recalcular || '') === '1';
+    const historical = fecha < argentinaToday();
+    if (historical && !forceRefresh) {
+      const cached = await cacheRpc(request, 'donato_control_rapido_cache_get', { p_fecha: fecha });
+      if (cached && Array.isArray(cached.controles)) {
+        response.setHeader('Cache-Control', 'private, max-age=60');
+        return response.status(200).json({ ...cached, desdeCache: true });
+      }
+    }
+
     const [sales, accounting, cachedRows] = await Promise.all([
       fetchTodayReports(fecha).then(([salesRows, accountingRows]) => ({ salesRows, accountingRows })),
       fetchCachedControlRows(request, fecha),
@@ -234,8 +261,7 @@ export default async function handler(request, response) {
     });
 
     const retirosSinAsignar = retiros.filter((r) => !r.usuarioCodigo);
-    response.setHeader('Cache-Control', 'no-store');
-    return response.status(200).json({
+    const payload = {
       fecha,
       criterioReti: 'ID contable RETI interpolado entre el primer y último VENT del día y asignado al turno horario del cajero en la misma caja',
       diagnosticoReti: {
@@ -247,7 +273,13 @@ export default async function handler(request, response) {
       controles,
       retirosSinAsignar,
       generadoAt: new Date().toISOString(),
-    });
+      desdeCache: false,
+    };
+    if (historical) {
+      await cacheRpc(request, 'donato_control_rapido_cache_put', { p_fecha: fecha, p_payload: payload });
+    }
+    response.setHeader('Cache-Control', 'no-store');
+    return response.status(200).json(payload);
   } catch (error) {
     console.error('Error control rapido Donato', error);
     return response.status(500).json({ error: error instanceof Error ? error.message : 'Error consultando Sigma' });
