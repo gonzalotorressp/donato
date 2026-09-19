@@ -119,9 +119,20 @@ function buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows = [
           chosen = previous;
           confidence = 'MEDIA';
         } else if (next) {
-          // Antes del primer turno del día no se imputa automáticamente al cajero futuro.
-          chosen = null;
-          confidence = 'SIN_ASIGNAR_PRE_TURNO';
+          // La interpolación global puede adelantar algunos RETI respecto de su hora real.
+          // Si el asiento contable ocurre después de los VENT del cajero anterior en esa
+          // misma caja, pertenece al turno anterior aunque la hora estimada haya quedado
+          // apenas antes del inicio de ese turno.
+          const priorByAccountingOrder = ordered
+            .filter((j) => j.end <= next.start)
+            .sort((a, b) => b.end - a.end)[0] || null;
+          if (priorByAccountingOrder) {
+            chosen = priorByAccountingOrder;
+            confidence = 'MEDIA';
+          } else {
+            chosen = null;
+            confidence = 'SIN_ASIGNAR_PRE_TURNO';
+          }
         }
       }
     }
@@ -147,8 +158,10 @@ export default async function handler(request, response) {
     const fecha = typeof request.query?.fecha === 'string' ? request.query.fecha : '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return response.status(400).json({ error: 'Fecha inválida' });
 
-    const [sales, accounting] = await fetchTodayReports(fecha);
-    const cachedRows = await fetchCachedControlRows(request, fecha);
+    const [sales, accounting, cachedRows] = await Promise.all([
+      fetchTodayReports(fecha).then(([salesRows, accountingRows]) => ({ salesRows, accountingRows })),
+      fetchCachedControlRows(request, fecha),
+    ]).then(([reports, cache]) => [reports.salesRows, reports.accountingRows, cache]);
     const journeys = buildBlindJourneys(sales, accounting, fecha);
     const retiros = buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows);
     const retirosDisponibles = retiros.length;
