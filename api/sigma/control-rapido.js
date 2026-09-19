@@ -98,7 +98,32 @@ function buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows = [
     const cajaCodigo = retiro.cashAccount - 1259;
     const sameCaja = shifts.filter((j) => Number(j.cajaCodigo) === cajaCodigo && j.start !== null && j.end !== null);
     let chosen = null;
-    if (estimated !== null) {
+
+    // Fuente primaria de asignación: secuencia contable de la propia caja.
+    // Un cajero puede operar más de una caja en el mismo día, por lo que no alcanza
+    // con el único cajaCodigo resumido de su jornada. Buscamos CODO de esa cuenta
+    // física alrededor del RETI y usamos el operador anterior; si ambos lados son
+    // el mismo usuario la atribución es inequívoca.
+    const codoCaja = accounting
+      .filter((row) =>
+        row.fecha === fecha
+        && String(row.comprobanteCodigo || '').trim().toUpperCase() === 'CODO'
+        && Number(row.cuentaCodigo) === retiro.cashAccount
+        && rowId(row)
+        && Number(row.usuarioCodigo)
+      )
+      .map((row) => ({ id: rowId(row), user: Number(row.usuarioCodigo), name: String(row.usuarioNombre || '').trim() }))
+      .sort((a, b) => a.id - b.id);
+    const codoPrev = [...codoCaja].reverse().find((row) => row.id < retiro.id) || null;
+    const codoNext = codoCaja.find((row) => row.id > retiro.id) || null;
+    const accountingUser = codoPrev?.user || (codoPrev && codoNext && codoPrev.user === codoNext.user ? codoPrev.user : null);
+    if (accountingUser) {
+      const journey = journeys.find((j) => Number(j.usuarioCodigo) === accountingUser);
+      chosen = journey || { usuarioCodigo: accountingUser, usuarioNombre: codoPrev?.name || '' };
+      confidence = codoNext && codoPrev?.user === codoNext.user ? 'ALTA' : 'MEDIA';
+    }
+
+    if (!chosen && estimated !== null) {
       const ordered = [...sameCaja].sort((a, b) => a.start - b.start);
       const inside = ordered.filter((j) => estimated >= j.start && estimated <= j.end);
       if (inside.length === 1) {
