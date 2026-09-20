@@ -265,3 +265,18 @@ button:disabled { cursor: not-allowed; opacity: .5; }
     grid-template-columns: 1fr;
   }
 }
+
+/* RETI review: mobile-first, keep information and actions in a single readable column */
+.reti-review-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,320px);gap:16px;align-items:start;padding:16px;margin-top:8px;border:1px solid var(--border,#dfe3e8);border-radius:18px;background:#fff}
+.reti-review-info{min-width:0;display:flex;flex-direction:column;gap:5px}
+.reti-review-info strong{font-size:1rem}
+.reti-review-info span{display:block;overflow-wrap:anywhere}
+.reti-review-actions{display:grid;gap:8px;width:100%}
+.reti-review-actions button,.reti-review-actions select{width:100%;max-width:100%;min-width:0}
+@media(max-width:760px){
+ .reti-review-card{grid-template-columns:1fr;padding:14px;gap:12px}
+ .reti-review-actions{grid-template-columns:1fr}
+ .reti-review-actions button,.reti-review-actions select{width:100%;font-size:14px}
+ .panel-heading{align-items:flex-start;gap:10px}
+ .panel-heading .secondary-button{max-width:46%;white-space:normal}
+}
