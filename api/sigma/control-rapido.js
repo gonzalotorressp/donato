@@ -197,7 +197,7 @@ export default async function handler(request, response) {
     const confirmedCorrections = await cacheRpc(request, 'donato_reti_correcciones_fecha', { p_fecha: fecha }) || [];
     for (const correction of confirmedCorrections) {
       const retiro = retiros.find((r) => Number(r.id) === Number(correction.retiro_id));
-      if (!retiro) continue;
+      if (!retiro || correction.estado === 'DESESTIMADA') continue;
       retiro.cajaOriginal = Number(correction.caja_original);
       retiro.cajaCodigo = Number(correction.caja_corregida);
       retiro.usuarioCodigo = Number(correction.usuario_sigma_codigo);
@@ -229,6 +229,20 @@ export default async function handler(request, response) {
         });
       }
     }
+
+    const correccionById = new Map(confirmedCorrections.map((c) => [Number(c.retiro_id), c]));
+    const retirosRevision = retiros.map((retiro) => {
+      const suggestion = correctionSuggestions.find((x) => Number(x.retiroId) === Number(retiro.id)) || null;
+      const correction = correccionById.get(Number(retiro.id)) || null;
+      return {
+        ...retiro,
+        usuarioSugeridoCodigo: suggestion?.usuarioCodigo ?? retiro.usuarioCodigo ?? null,
+        usuarioSugeridoNombre: suggestion?.usuarioNombre ?? journeys.find((j) => Number(j.usuarioCodigo) === Number(retiro.usuarioCodigo))?.usuarioNombre ?? null,
+        cajaSugerida: suggestion?.cajaSugerida ?? retiro.cajaCodigo,
+        estadoRevision: correction?.estado || (suggestion ? 'SUGERIDA' : 'SIN_OBSERVACION'),
+        motivoRevision: correction?.motivo || suggestion?.motivo || null,
+      };
+    }).sort((a, b) => Number(a.cajaCodigo) - Number(b.cajaCodigo) || String(a.horaAproximada || '').localeCompare(String(b.horaAproximada || '')) || Number(a.id) - Number(b.id));
 
     const controles = journeys.map((journey) => {
       const snapshot = buildUserSnapshot(sales, accounting, fecha, journey.usuarioCodigo, journey.cajaCodigo);
@@ -285,6 +299,7 @@ export default async function handler(request, response) {
       },
       controles,
       retirosSinAsignar,
+      retirosRevision,
       generadoAt: new Date().toISOString(),
       desdeCache: false,
     };
