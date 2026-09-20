@@ -1296,27 +1296,15 @@ export default function App({ profile, onSignOut }: Props) {
               <div className="panel-heading"><div><p className="eyebrow">EDICIÓN CONTROL RÁPIDO</p><h2>Retiros del {displayDate(historyDate)}</h2></div>
                 <button className="secondary-button" type="button" onClick={() => setEditingQuickControl(false)}>Volver al control</button></div>
               <p className="muted-copy">Listado completo por caja de registración y orden cronológico.</p>
-              {[1,2,3,4].map((caja)=>{const rows=quickControlRetis.filter((r)=>Number(r.cajaCodigo)===caja);if(!rows.length)return null;return <div key={caja} style={{marginBottom:18}}><h3>Caja {caja}</h3>{rows.map((r)=>{const suggested=quickControls.find((x)=>Number(x.usuarioCodigo)===Number(r.usuarioSugeridoCodigo));return <div key={r.id} className="cashier-card"><div style={{minWidth:0,flex:1}}><strong>RETI {r.id} · {money.format(r.importe)}</strong><span>~{r.horaAproximada||'s/h'} · Registrado por: {r.registradoPorNombre||(r.registradoPorCodigo?`Usuario ${r.registradoPorCodigo}`:'sin dato')}</span><span>Cajero sugerido: {r.usuarioSugeridoNombre||'sin sugerencia'} · Estado: {r.estadoRevision}</span></div>{r.estadoRevision==='SUGERIDA'?<div style={{display:'grid',gap:6,minWidth:220}}><button className="add-row-button" type="button" disabled={!suggested} onClick={()=>suggested&&void confirmRetiCorrection(suggested,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaCodigo,cajaSugerida:r.cajaSugerida,horaAproximada:r.horaAproximada,motivo:r.motivoRevision||'Posible RETI en caja incorrecta',estado:'SUGERIDA'})}>Confirmar corrección</button><select value={retiAssignment[Number(r.id)]||''} onChange={(e)=>setRetiAssignment((prev)=>({...prev,[Number(r.id)]:e.target.value}))}><option value="">Dejar pendiente de asignar</option>{quickControls.map((x)=><option key={x.usuarioCodigo} value={String(x.usuarioCodigo)}>{x.usuarioNombre} · Caja {x.cajaCodigo||'—'}</option>)}</select><button className="secondary-button" type="button" onClick={()=>void dismissRetiCorrection(r)}>Desestimar corrección</button></div>:null}</div>;})}</div>;})}
+              {[1,2,3,4].map((caja)=>{const rows=quickControlRetis.filter((r)=>Number(r.cajaCodigo)===caja);if(!rows.length)return null;return <div key={caja} style={{marginBottom:18}}><h3>Caja {caja}</h3>{rows.map((r)=>{const suggested=quickControls.find((x)=>Number(x.usuarioCodigo)===Number(r.usuarioSugeridoCodigo));return <div key={r.id} className="reti-review-card"><div className="reti-review-info"><strong>RETI {r.id} · {money.format(r.importe)}</strong><span>~{r.horaAproximada||'s/h'} · Registrado por: {r.registradoPorNombre||(r.registradoPorCodigo?`Usuario ${r.registradoPorCodigo}`:'sin dato')}</span><span>Cajero sugerido: {r.usuarioSugeridoNombre||'sin sugerencia'} · Estado: {r.estadoRevision}</span></div>{r.estadoRevision==='SUGERIDA'?<div className="reti-review-actions"><button className="add-row-button" type="button" disabled={!suggested} onClick={()=>suggested&&void confirmRetiCorrection(suggested,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaCodigo,cajaSugerida:r.cajaSugerida,horaAproximada:r.horaAproximada,motivo:r.motivoRevision||'Posible RETI en caja incorrecta',estado:'SUGERIDA'})}>Confirmar corrección</button><select value={retiAssignment[Number(r.id)]||''} onChange={(e)=>setRetiAssignment((prev)=>({...prev,[Number(r.id)]:e.target.value}))}><option value="">Dejar pendiente de asignar</option>{quickControls.map((x)=><option key={x.usuarioCodigo} value={String(x.usuarioCodigo)}>{x.usuarioNombre} · Caja {x.cajaCodigo||'—'}</option>)}</select><button className="secondary-button" type="button" onClick={()=>void dismissRetiCorrection(r)}>Desestimar corrección</button></div>:null}</div>;})}</div>;})}
             </section>
           ) : null}
 
-          {!editingQuickControl && historyDate && profile.rol === 'administrador' ? (
+          {!editingQuickControl && historyDate ? (
             <section className="panel dashboard-panel">
               <div className="panel-heading">
-                <div><p className="eyebrow">CONTROL RÁPIDO · SÓLO SIGMA</p><h2>Cómo da la caja según registración</h2></div>
-                <Banknote size={22} />
-              </div>
-              <p className="muted-copy">No compara contra documentación física. El control histórico reconstruye el cierre registrado en Sigma: Venta − RETI − Clover − Payway − Naranja − Cuenta corriente. Un resultado positivo es faltante; uno negativo es sobrante.</p>
-              {quickControlCriterion ? <p className="muted-copy"><strong>Cruce RETI:</strong> {quickControlCriterion}.</p> : null}
-              <button className="secondary-button" type="button" onClick={() => setEditingQuickControl(true)}>Editar control rápido</button>
-            </section>
-          ) : null}
-
-          {historyDate ? (
-            <section className="panel dashboard-panel">
-              <div className="panel-heading">
-                <div><p className="eyebrow">VENTA POR CAJERO</p><h2>Jornada del {displayDate(historyDate)}</h2></div>
-                <ReceiptText size={22} />
+                <div><p className="eyebrow">JORNADA DIARIA</p><h2>Jornada del {displayDate(historyDate)}</h2></div>
+                {profile.rol === 'administrador' ? <button className="secondary-button" type="button" onClick={() => setEditingQuickControl(true)}>Editar control rápido</button> : <ReceiptText size={22} />}
               </div>
               {loadingHistory ? (
                 <div className="empty-state"><Clock3 /><div><strong>Cargando histórico…</strong><p>Leyendo la reconstrucción guardada del día.</p></div></div>
@@ -1328,6 +1316,7 @@ export default function App({ profile, onSignOut }: Props) {
                       .sort((a, b) => Number(b.cierre_nro || 0) - Number(a.cierre_nro || 0));
                     const editable = userClosures.find((item) => ['BORRADOR', 'REVISION_SUPERVISOR'].includes(item.estado));
                     const latest = userClosures[0] || null;
+                    const control = quickControls.find((x) => Number(x.usuarioCodigo) === Number(journey.usuarioCodigo));
                     const pending = journey.tieneActividadNueva === true;
                     const stateLabel = editable ? statusLabel(editable) : pending ? 'Pendiente de cierre' : latest ? statusLabel(latest) : 'Sin pendiente';
                     const stateClass = pending || editable?.estado === 'BORRADOR' ? 'pending' : latest && ['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(latest.estado) ? 'done' : 'review';
@@ -1351,6 +1340,8 @@ export default function App({ profile, onSignOut }: Props) {
                             {journey.cantidadVentas ? ` · ${journey.cantidadVentas} ventas` : ''}
                             {journey.ultimaVentaHora ? ` · última ${journey.ultimaVentaHora}` : ''}
                           </span>
+                          {control ? <span>Efectivo CODO {money.format(control.efectivoCodo)} · RETI {money.format(control.retirosAsignados)} · Clover {money.format(control.clover)} · Payway {money.format(control.payway)} · Naranja {money.format(control.naranja)} · Cta. Cte. {money.format(control.cuentaCorriente)}</span> : null}
+                          {control ? <span><strong>{control.estadoDiferencia === 'OK' ? 'Sin diferencia' : `${control.estadoDiferencia === 'FALTANTE' ? 'Faltante' : 'Sobrante'} ${money.format(Math.abs(control.diferenciaSigma))}`}</strong> · Saldo efectivo {money.format(control.efectivoTeoricoRestante)}</span> : null}
                         </div>
                         <div className={`cashier-state ${stateClass}`}>{stateLabel}</div>
                       </button>
@@ -1363,7 +1354,7 @@ export default function App({ profile, onSignOut }: Props) {
             </section>
           ) : null}
 
-          <section className="panel dashboard-panel">
+          {!editingQuickControl ? <section className="panel dashboard-panel">
             <div className="panel-heading">
               <div><p className="eyebrow">CIERRES REGISTRADOS</p><h2>{historyDate ? `Cierres del ${displayDate(historyDate)}` : 'Últimos cierres'}</h2></div>
               <FileText size={22} />
