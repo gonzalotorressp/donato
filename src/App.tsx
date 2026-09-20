@@ -438,6 +438,25 @@ export default function App({ profile, onSignOut }: Props) {
     }
   }
 
+  async function confirmRetiCorrection(item: QuickControl, correction: NonNullable<QuickControl['sugerenciasCorreccion']>[number]) {
+    if (!supabase || !historyDate) return;
+    const { error } = await supabase.rpc('donato_reti_correccion_confirmar', {
+      p_fecha: historyDate,
+      p_retiro_id: correction.retiroId,
+      p_importe: correction.importe,
+      p_caja_original: correction.cajaRegistrada,
+      p_caja_corregida: correction.cajaSugerida,
+      p_usuario_sigma_codigo: item.usuarioCodigo,
+      p_usuario_sigma_nombre: item.usuarioNombre,
+      p_motivo: correction.motivo,
+    });
+    if (error) {
+      setHistoryError(error.message);
+      return;
+    }
+    await loadHistory(true);
+  }
+
   async function loadHistory(recalcular = false) {
     if (!supabase) return;
     setLoadingHistory(true);
@@ -1277,7 +1296,12 @@ export default function App({ profile, onSignOut }: Props) {
                         {item.retiros.length ? <small>{item.retiros.map((r) => `RETI ${r.id} ${money.format(r.importe)} ~${r.horaAproximada || 's/h'} (${r.confianza})`).join(' · ')}</small> : null}
                         {item.sugerenciasCorreccion?.length ? (
                           <small style={{ fontWeight: 700 }}>
-                            Posible corrección: {item.sugerenciasCorreccion.map((r) => `RETI ${r.retiroId} ${money.format(r.importe)} registrado Caja ${r.cajaRegistrada} → sugerido Caja ${r.cajaSugerida} ~${r.horaAproximada || 's/h'}`).join(' · ')}
+                            Posible corrección: {item.sugerenciasCorreccion.map((r) => (
+                              <span key={r.retiroId} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginRight: 8 }}>
+                                RETI {r.retiroId} {money.format(r.importe)} registrado Caja {r.cajaRegistrada} → sugerido Caja {r.cajaSugerida} ~{r.horaAproximada || 's/h'}
+                                <button className="add-row-button" type="button" disabled={loadingHistory} onClick={() => void confirmRetiCorrection(item, r)}>Confirmar corrección</button>
+                              </span>
+                            ))}
                           </small>
                         ) : null}
                       </div>
