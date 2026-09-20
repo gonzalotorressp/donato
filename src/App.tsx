@@ -318,6 +318,8 @@ export default function App({ profile, onSignOut }: Props) {
   const [quickControls, setQuickControls] = useState<QuickControl[]>([]);
   const [quickControlUnassigned, setQuickControlUnassigned] = useState<Array<{ id: number; cajaCodigo: number; importe: number }>>([]);
   const [quickControlCriterion, setQuickControlCriterion] = useState('');
+  const [editingQuickControl, setEditingQuickControl] = useState(false);
+  const [quickControlRetis, setQuickControlRetis] = useState<any[]>([]);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [selectedJourney, setSelectedJourney] = useState<Journey | null>(null);
@@ -457,6 +459,19 @@ export default function App({ profile, onSignOut }: Props) {
     await loadHistory(true);
   }
 
+  async function dismissRetiCorrection(retiro: any) {
+    if (!supabase || !historyDate) return;
+    const { error } = await supabase.rpc('donato_reti_correccion_desestimar', {
+      p_fecha: historyDate, p_retiro_id: retiro.id, p_importe: retiro.importe,
+      p_caja_original: retiro.cajaCodigo,
+      p_usuario_sigma_codigo: retiro.usuarioSugeridoCodigo || retiro.usuarioCodigo || 0,
+      p_usuario_sigma_nombre: retiro.usuarioSugeridoNombre || '',
+      p_motivo: 'Sugerencia revisada y desestimada por administrador',
+    });
+    if (error) { setHistoryError(error.message); return; }
+    await loadHistory(true);
+  }
+
   async function loadHistory(recalcular = false) {
     if (!supabase) return;
     setLoadingHistory(true);
@@ -501,6 +516,7 @@ export default function App({ profile, onSignOut }: Props) {
         setQuickControls(controls);
         setQuickControlUnassigned(Array.isArray(quickData.retirosSinAsignar) ? quickData.retirosSinAsignar : []);
         setQuickControlCriterion(String(quickData.criterioReti || ''));
+        setQuickControlRetis(Array.isArray(quickData.retirosRevision) ? quickData.retirosRevision : []);
         setHistoryJourneys(controls.map((item: QuickControl) => {
           const userClosures = closuresForDate.filter((c) => Number(c.usuario_sigma_codigo) === Number(item.usuarioCodigo) && c.estado !== 'CANCELADO');
           return {
@@ -1282,6 +1298,29 @@ export default function App({ profile, onSignOut }: Props) {
               </div>
               <p className="muted-copy">No compara contra documentación física. El control histórico reconstruye el cierre registrado en Sigma: Venta − RETI − Clover − Payway − Naranja − Cuenta corriente. Un resultado positivo es faltante; uno negativo es sobrante.</p>
               {quickControlCriterion ? <p className="muted-copy"><strong>Cruce RETI:</strong> {quickControlCriterion}.</p> : null}
+              <button className="secondary-button" type="button" onClick={() => setEditingQuickControl((v) => !v)}>{editingQuickControl ? 'Cerrar edición' : 'Editar control rápido'}</button>
+              {editingQuickControl ? <div style={{ marginTop: 12 }}>
+                {[1,2,3,4].map((caja) => {
+                  const rows = quickControlRetis.filter((r) => Number(r.cajaCodigo) === caja);
+                  if (!rows.length) return null;
+                  return <div key={caja} style={{ marginBottom: 14 }}><strong>Caja {caja}</strong>
+                    {rows.map((r) => {
+                      const suggestedItem = quickControls.find((x) => Number(x.usuarioCodigo) === Number(r.usuarioSugeridoCodigo));
+                      return <div key={r.id} className="cashier-card" style={{ marginTop: 6 }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <strong>RETI {r.id} · {money.format(r.importe)}</strong>
+                          <span>~{r.horaAproximada || 's/h'} · Registrado por: {r.registradoPorNombre || (r.registradoPorCodigo ? `Usuario ${r.registradoPorCodigo}` : 'sin dato')}</span>
+                          <span>Cajero sugerido: {r.usuarioSugeridoNombre || 'sin sugerencia'} · Caja sugerida: {r.cajaSugerida || '—'} · Estado: {r.estadoRevision}</span>
+                        </div>
+                        {r.estadoRevision === 'SUGERIDA' && suggestedItem ? <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                          <button className="add-row-button" type="button" onClick={() => void confirmRetiCorrection(suggestedItem, { retiroId:r.id, importe:r.importe, cajaRegistrada:r.cajaCodigo, cajaSugerida:r.cajaSugerida, horaAproximada:r.horaAproximada, motivo:r.motivoRevision || 'Posible RETI en caja incorrecta', estado:'SUGERIDA' })}>Confirmar corrección</button>
+                          <button className="secondary-button" type="button" onClick={() => void dismissRetiCorrection(r)}>Desestimar</button>
+                        </div> : null}
+                      </div>;
+                    })}
+                  </div>;
+                })}
+              </div> : null}
               {loadingHistory ? (
                 <div className="empty-state"><Clock3 /><div><strong>Reconstruyendo control…</strong><p>Cargando reconstrucción histórica guardada.</p></div></div>
               ) : quickControls.length ? (
@@ -1294,16 +1333,6 @@ export default function App({ profile, onSignOut }: Props) {
                         <span>Caja {item.cajaCodigo || '—'} · {item.primeraVentaHora || '—'} a {item.ultimaVentaHora || '—'} · Venta {money.format(item.venta)}</span>
                         <span>Efectivo CODO {money.format(item.efectivoCodo)} · RETI {money.format(item.retirosAsignados)} · Clover {money.format(item.clover)} · Payway {money.format(item.payway)} · Naranja {money.format(item.naranja)} · Cta. Cte. {money.format(item.cuentaCorriente)}</span>
                         {item.retiros.length ? <small>{item.retiros.map((r) => `RETI ${r.id} ${money.format(r.importe)} ~${r.horaAproximada || 's/h'} (${r.confianza})`).join(' · ')}</small> : null}
-                        {item.sugerenciasCorreccion?.length ? (
-                          <small style={{ fontWeight: 700 }}>
-                            Posible corrección: {item.sugerenciasCorreccion.map((r) => (
-                              <span key={r.retiroId} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginRight: 8 }}>
-                                RETI {r.retiroId} {money.format(r.importe)} registrado Caja {r.cajaRegistrada} → sugerido Caja {r.cajaSugerida} ~{r.horaAproximada || 's/h'}
-                                <button className="add-row-button" type="button" disabled={loadingHistory} onClick={() => void confirmRetiCorrection(item, r)}>Confirmar corrección</button>
-                              </span>
-                            ))}
-                          </small>
-                        ) : null}
                       </div>
                       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                         <div className="cashier-state done">Saldo efectivo {money.format(item.efectivoTeoricoRestante)}</div>
