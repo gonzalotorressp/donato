@@ -194,6 +194,19 @@ export default async function handler(request, response) {
     ]).then(([reports, cache]) => [reports.salesRows, reports.accountingRows, cache]);
     const journeys = buildBlindJourneys(sales, accounting, fecha);
     const retiros = buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows);
+    const confirmedCorrections = await cacheRpc(request, 'donato_reti_correcciones_fecha', { p_fecha: fecha }) || [];
+    for (const correction of confirmedCorrections) {
+      const retiro = retiros.find((r) => Number(r.id) === Number(correction.retiro_id));
+      if (!retiro) continue;
+      retiro.cajaOriginal = Number(correction.caja_original);
+      retiro.cajaCodigo = Number(correction.caja_corregida);
+      retiro.usuarioCodigo = Number(correction.usuario_sigma_codigo);
+      retiro.usuarioNombre = correction.usuario_sigma_nombre || '';
+      retiro.correccionAdministrativa = true;
+      retiro.estadoCorreccion = correction.estado;
+      retiro.motivoCorreccion = correction.motivo;
+      retiro.confianza = 'CORREGIDO';
+    }
     const retirosDisponibles = retiros.length;
     const retirosAsignadosCantidad = retiros.filter((r) => r.usuarioCodigo).length;
 
