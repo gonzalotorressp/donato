@@ -1409,6 +1409,9 @@ export default function App({ profile, onSignOut }: Props) {
                     <div>
                       <strong>{item.usuario_sigma_nombre}</strong>
                       <span>{displayDate(item.fecha)} · Caja {item.caja_codigo || '—'} · Cierre {item.cierre_nro}</span>
+                      {item.diferencia_efectivo !== null && item.diferencia_efectivo !== undefined ? (
+                        <span><strong>{Math.abs(Number(item.diferencia_efectivo)) < 0.005 ? 'Sin diferencia' : Number(item.diferencia_efectivo) < 0 ? 'Faltante' : 'Sobrante'}{Math.abs(Number(item.diferencia_efectivo)) >= 0.005 ? ` ${money.format(Math.abs(Number(item.diferencia_efectivo)))}` : ''}</strong></span>
+                      ) : null}
                     </div>
                     <div className={`cashier-state ${['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(item.estado) ? 'done' : item.estado === 'BORRADOR' ? 'pending' : 'review'}`}>{statusLabel(item)}</div>
                   </button>
