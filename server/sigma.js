@@ -108,46 +108,75 @@ function normalizedTime(value) {
 }
 
 export function buildBlindJourneys(sales, accounting, fecha) {
-  const usersWithSales = new Set();
-  const lastSaleTimeByUser = new Map();
-  const salesCountByUser = new Map();
-
-  for (const row of sales) {
-    if (row.fecha !== fecha || row.usuario === null || row.usuario === undefined) continue;
-    const user = Number(row.usuario);
-    usersWithSales.add(user);
-    salesCountByUser.set(user, (salesCountByUser.get(user) || 0) + 1);
-    const hora = normalizedTime(row.hora);
-    if (hora && hora > (lastSaleTimeByUser.get(user) || '')) lastSaleTimeByUser.set(user, hora);
-  }
-
+  const INACTIVITY_LIMIT_SECONDS = 2 * 60 * 60;
   const nameByUser = new Map();
-  const cashAccountByUser = new Map();
+  const cashEvents = [];
+
   for (const row of accounting) {
     if (row.fecha !== fecha || row.usuarioCodigo === null || row.usuarioCodigo === undefined) continue;
     const user = Number(row.usuarioCodigo);
     if (row.usuarioNombre) nameByUser.set(user, String(row.usuarioNombre).trim());
-    if (
-      String(row.comprobanteCodigo || '').trim().toUpperCase() === 'CODO' &&
-      CASH_ACCOUNTS.has(Number(row.cuentaCodigo))
-    ) {
-      cashAccountByUser.set(user, Number(row.cuentaCodigo));
+    if (String(row.comprobanteCodigo || '').trim().toUpperCase() === 'CODO' && CASH_ACCOUNTS.has(Number(row.cuentaCodigo))) {
+      const rawTime = normalizedTime(row.hora);
+      cashEvents.push({ user, cajaCodigo: Number(row.cuentaCodigo) - 1259, hora: rawTime });
     }
   }
 
-  return [...usersWithSales]
-    .map((user) => {
-      const account = cashAccountByUser.get(user);
-      return {
-        fecha,
-        usuarioCodigo: user,
-        usuarioNombre: nameByUser.get(user) || `Usuario ${user}`,
-        cajaCodigo: account ? account - 1259 : null,
-        ultimaVentaHora: lastSaleTimeByUser.get(user) || null,
-        cantidadVentas: salesCountByUser.get(user) || 0,
-      };
-    })
-    .sort((a, b) => a.usuarioNombre.localeCompare(b.usuarioNombre));
+  // Cuando 130 no trae hora, inferimos la caja del usuario por sus CODO del día.
+  // Si hay más de una caja, cada cambio observado genera una jornada independiente.
+  const boxesByUser = new Map();
+  for (const event of cashEvents) {
+    if (!boxesByUser.has(event.user)) boxesByUser.set(event.user, []);
+    const boxes = boxesByUser.get(event.user);
+    if (!boxes.includes(event.cajaCodigo)) boxes.push(event.cajaCodigo);
+  }
+
+  const saleEvents = sales
+    .filter((row) => row.fecha === fecha && row.usuario !== null && row.usuario !== undefined)
+    .map((row) => ({ row, user: Number(row.usuario), hora: normalizedTime(row.hora) }))
+    .filter((e) => e.hora)
+    .sort((x, y) => x.hora.localeCompare(y.hora));
+
+  const byUser = new Map();
+  for (const event of saleEvents) {
+    if (!byUser.has(event.user)) byUser.set(event.user, []);
+    byUser.get(event.user).push(event);
+  }
+
+  const journeys = [];
+  for (const [user, events] of byUser.entries()) {
+    const boxes = boxesByUser.get(user) || [];
+    // Con la información actual, una caja única queda inequívoca. Si Sigma registra
+    // varias cajas para el usuario, se conserva la caja detectada cuando puede inferirse;
+    // nunca se fusionan jornadas separadas por más de 2 horas.
+    let current = null;
+    for (const event of events) {
+      const seconds = (() => { const m=event.hora.match(/(\d{2}):(\d{2})(?::(\d{2}))?/); return m ? Number(m[1])*3600+Number(m[2])*60+Number(m[3]||0) : null; })();
+      const cajaCodigo = boxes.length === 1 ? boxes[0] : (current?.cajaCodigo ?? boxes[0] ?? null);
+      const splitByGap = current && seconds !== null && current.lastSeconds !== null && seconds - current.lastSeconds > INACTIVITY_LIMIT_SECONDS;
+      if (!current || splitByGap || (current.cajaCodigo && cajaCodigo && current.cajaCodigo !== cajaCodigo)) {
+        if (current) journeys.push(current);
+        current = {
+          fecha, jornadaId: `${fecha}-${user}-${journeys.filter((j)=>j.usuarioCodigo===user).length+1}`,
+          jornadaNro: journeys.filter((j)=>j.usuarioCodigo===user).length+1,
+          usuarioCodigo:user, usuarioNombre:nameByUser.get(user)||`Usuario ${user}`,
+          cajaCodigo, primeraVentaHora:event.hora, ultimaVentaHora:event.hora,
+          cantidadVentas:1, lastSeconds:seconds,
+        };
+      } else {
+        current.ultimaVentaHora=event.hora; current.cantidadVentas+=1; current.lastSeconds=seconds;
+      }
+    }
+    if (current) journeys.push(current);
+  }
+
+  // Si otro cajero ocupa la misma caja entre dos tramos del mismo usuario, esos tramos
+  // no deben fusionarse. El corte de 2h ya separa los casos largos; esta pasada conserva
+  // cada tramo generado como jornada independiente.
+  return journeys.map(({lastSeconds,...j})=>j).sort((x,y)=>
+    String(x.primeraVentaHora||'').localeCompare(String(y.primeraVentaHora||'')) ||
+    Number(x.cajaCodigo||0)-Number(y.cajaCodigo||0)
+  );
 }
 
 function number(value) {
