@@ -654,7 +654,15 @@ export default function App({ profile, onSignOut }: Props) {
   }
 
   async function openExistingClosure(item: ClosureRow) {
+    // Reutilizar la jornada reconstruida para conservar primera/ultima venta al abrir
+    // un cierre existente (incluido Historial). Si no esta cargada, se mantiene el fallback.
+    const reconstructedJourney = journeys.find((journey) =>
+      journey.fecha === item.fecha
+      && Number(journey.usuarioCodigo) === Number(item.usuario_sigma_codigo)
+      && Number(journey.cajaCodigo || 0) === Number(item.caja_codigo || 0)
+    );
     const journey: Journey = {
+      ...(reconstructedJourney || {}),
       fecha: item.fecha,
       usuarioCodigo: item.usuario_sigma_codigo,
       usuarioNombre: item.usuario_sigma_nombre,
