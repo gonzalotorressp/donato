@@ -586,7 +586,9 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}, reti
     cuentaCorriente: round2(totalCuentaCorriente - cuentaCorrienteSigma),
   };
 
-  const totalFisicoControlado = round2(efectivoRendido + cloverFisico + paywayFisico + totalCuentaCorriente);
+  // El efectivo de cierre integra el RETI administrativo, pero no se suma otra vez al
+  // resultado neto: snapshot.efectivo ya representa toda la recaudacion en efectivo.
+  const totalFisicoControlado = round2(retirosDocumentados + cloverFisico + paywayFisico + totalCuentaCorriente);
   const totalSigmaControlado = round2(
     number(snapshot?.efectivo) + cloverSigma + paywaySigma + cuentaCorrienteSigma
   );
