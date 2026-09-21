@@ -268,7 +268,7 @@ export default async function handler(request, response) {
     const comparison = compareBlindDeclaration(snapshot, cierre?.declaracion_ciega || {}, config || {}, retiCarry);
 
     const efectivoEsperadoCierre = Number(
-      (Number(snapshot?.efectivo || 0) - Number(comparison.retirosDocumentados || 0)).toFixed(2),
+      (Number(snapshot?.efectivo || 0) - Number(comparison.totalDepositario || 0) - Number(comparison.totalSupervisor || 0)).toFixed(2),
     );
     const efectivoEntregadoCierre = Number(
       cierre?.efectivo_entregado_cierre
