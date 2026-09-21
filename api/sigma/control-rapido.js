@@ -212,23 +212,38 @@ export default async function handler(request, response) {
     const retirosAsignadosCantidad = retiros.filter((r) => r.usuarioCodigo).length;
 
     const correctionSuggestions = [];
+    // Sólo sugerimos una corrección de caja cuando el RETI NO pudo asignarse
+    // correctamente a una jornada de su propia caja. La caja registrada siempre
+    // tiene prioridad absoluta sobre coincidencias horarias de otras cajas.
     for (const retiro of retiros) {
+      if (retiro.usuarioCodigo || retiro.correccionAdministrativa) continue;
       const sec = secondsFromTime(retiro.horaAproximada);
       if (sec === null) continue;
-      for (const journey of journeys) {
-        if (!journey.cajaCodigo || Number(journey.cajaCodigo) === Number(retiro.cajaCodigo)) continue;
-        const start = secondsFromTime(journey.primeraVentaHora);
-        const end = secondsFromTime(journey.ultimaVentaHora);
-        if (start === null || end === null || sec < start || sec > end) continue;
-        correctionSuggestions.push({
-          retiroId: retiro.id, importe: retiro.importe,
-          cajaRegistrada: retiro.cajaCodigo, cajaSugerida: journey.cajaCodigo,
-          usuarioCodigo: journey.usuarioCodigo, usuarioNombre: journey.usuarioNombre,
-          horaAproximada: retiro.horaAproximada,
-          motivo: 'RETI registrado en otra caja durante la jornada activa del cajero',
-          estado: 'SUGERIDA',
+      const candidates = journeys
+        .map((journey) => ({
+          journey,
+          start: secondsFromTime(journey.primeraVentaHora),
+          end: secondsFromTime(journey.ultimaVentaHora),
+        }))
+        .filter((x) => x.start !== null && x.end !== null && sec >= x.start && sec <= x.end)
+        .sort((x, y) => {
+          // Si hubiera más de un candidato, priorizar el intervalo más ajustado.
+          const spanX = x.end - x.start;
+          const spanY = y.end - y.start;
+          return spanX - spanY;
         });
-      }
+      if (candidates.length !== 1) continue; // ambiguo: queda pendiente, no inventamos sugerencia
+      const journey = candidates[0].journey;
+      if (Number(journey.cajaCodigo) === Number(retiro.cajaCodigo)) continue;
+      correctionSuggestions.push({
+        retiroId: retiro.id, importe: retiro.importe,
+        cajaRegistrada: retiro.cajaCodigo, cajaSugerida: journey.cajaCodigo,
+        usuarioCodigo: journey.usuarioCodigo, usuarioNombre: journey.usuarioNombre,
+        jornadaId: journey.jornadaId,
+        horaAproximada: retiro.horaAproximada,
+        motivo: 'RETI sin jornada compatible en su caja; única jornada activa detectada en otra caja',
+        estado: 'SUGERIDA',
+      });
     }
 
     const correccionById = new Map(confirmedCorrections.map((c) => [Number(c.retiro_id), c]));
