@@ -205,6 +205,7 @@ export default async function handler(request, response) {
       retiro.correccionAdministrativa = true;
       retiro.estadoCorreccion = correction.estado;
       retiro.motivoCorreccion = correction.motivo;
+      retiro.jornadaIdAsignada = correction.jornada_id || null;
       retiro.confianza = 'CORREGIDO';
     }
     const retirosDisponibles = retiros.length;
@@ -251,6 +252,7 @@ export default async function handler(request, response) {
       const asignados = retiros.filter((r) => {
         if (Number(r.usuarioCodigo) !== Number(journey.usuarioCodigo)) return false;
         if (Number(r.cajaCodigo) !== Number(journey.cajaCodigo)) return false;
+        if (r.jornadaIdAsignada && String(r.jornadaIdAsignada) !== String(journey.jornadaId)) return false;
         const sec = secondsFromTime(r.horaAproximada);
         return sec === null || jornadaStart === null || jornadaEnd === null || (sec >= jornadaStart && sec <= jornadaEnd);
       });
