@@ -1368,6 +1368,7 @@ export default function App({ profile, onSignOut }: Props) {
                             {journey.cajaCodigo ? `Caja ${journey.cajaCodigo} · ` : ''}
                             Venta {money.format(Number(journey.venta || 0))}
                             {journey.cantidadVentas ? ` · ${journey.cantidadVentas} ventas` : ''}
+                            {journey.primeraVentaHora ? ` · primera ${journey.primeraVentaHora}` : ''}
                             {journey.ultimaVentaHora ? ` · última ${journey.ultimaVentaHora}` : ''}
                           </span>
                           {control ? <span>Efectivo CODO {money.format(control.efectivoCodo)} · RETI {money.format(control.retirosAsignados)} · Clover {money.format(control.clover)} · Payway {money.format(control.payway)} · Naranja {money.format(control.naranja)} · Cta. Cte. {money.format(control.cuentaCorriente)}</span> : null}
