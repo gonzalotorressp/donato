@@ -571,7 +571,9 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}, reti
     : 0;
 
   const retirosDocumentados = round2(totalDepositario + totalSupervisor + cierreEfectivo);
-  const efectivoRendido = round2(retirosDocumentados + cierreEfectivo);
+  // Los retiros de clientes (cashback/extracciones) salen físicamente de la caja:
+  // reducen el efectivo que debe rendir el cajero, aunque no forman parte del RETI administrativo.
+  const efectivoRendido = round2(retirosDocumentados + totalCashback);
   const cloverSigma = round2(number(snapshot?.cloverDirecto) + number(snapshot?.naranja));
   const paywaySigma = round2(snapshot?.payway);
   const cuentaCorrienteSigma = round2(snapshot?.cuentaCorriente);
@@ -588,7 +590,7 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}, reti
 
   // El efectivo de cierre integra el RETI administrativo, pero no se suma otra vez al
   // resultado neto: snapshot.efectivo ya representa toda la recaudacion en efectivo.
-  const totalFisicoControlado = round2(retirosDocumentados + cloverFisico + paywayFisico + totalCuentaCorriente);
+  const totalFisicoControlado = round2(retirosDocumentados + totalCashback + cloverFisico + paywayFisico + totalCuentaCorriente);
   const totalSigmaControlado = round2(
     number(snapshot?.efectivo) + cloverSigma + paywaySigma + cuentaCorrienteSigma
   );
