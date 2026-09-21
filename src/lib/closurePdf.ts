@@ -8,6 +8,7 @@ export type ClosurePdfInput = {
   closure: {
     fecha: string; cierre_nro: number; estado: string; caja_codigo: number;
     usuario_sigma_codigo: number; usuario_sigma_nombre: string;
+    jornada_inicio_hora?: string | null; jornada_fin_hora?: string | null;
     corte_desde_at?: string | null; corte_hasta_at?: string | null; sigma_snapshot_capturado_at?: string | null;
     fondo_inicial?: number | null; fondo_devuelto?: number | null; diferencia_fondo?: number | null;
     efectivo_entregado_cierre?: number | null; efectivo_esperado_cierre?: number | null; diferencia_efectivo?: number | null;
@@ -40,7 +41,7 @@ export async function downloadClosurePdf(input: ClosurePdfInput) {
   const tableRow=(label:string,sigmaValue:string,physicalValue:string,difference:string)=>{ensure(8);doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(23,35,61);doc.text(label,margin,y);doc.text(sigmaValue,78,y,{align:'right'});doc.text(physicalValue,132,y,{align:'right'});doc.text(difference,width-margin,y,{align:'right'});y+=5.5;};
   try { doc.addImage(donatoLogo,'JPEG',margin,y,24,24); } catch {}
   doc.setTextColor(24,63,130);doc.setFont('helvetica','bold');doc.setFontSize(20);doc.text('DONATO',45,y+7);doc.setFontSize(13);doc.text('Resumen de cierre de caja',45,y+15);doc.setFont('helvetica','normal');doc.setFontSize(8.5);doc.setTextColor(102,112,133);doc.text(`Generado por ${input.generatedBy}`,45,y+21);y+=27;
-  section('Identificacion del cierre'); pair('Fecha',dateAR(closure.fecha),'Cajero',closure.usuario_sigma_nombre); pair('Caja',`Caja ${closure.caja_codigo}`,'Cierre',`Nro. ${closure.cierre_nro}`); pair('Usuario Sigma',String(closure.usuario_sigma_codigo),'Estado',statusText(closure.estado)); pair('Tramo',`${timeAR(closure.corte_desde_at)||'inicio'} - ${timeAR(closure.corte_hasta_at||closure.sigma_snapshot_capturado_at)||'sin corte'}`);
+  section('Identificacion del cierre'); pair('Fecha',dateAR(closure.fecha),'Cajero',closure.usuario_sigma_nombre); pair('Caja',`Caja ${closure.caja_codigo}`,'Cierre',`Nro. ${closure.cierre_nro}`); pair('Usuario Sigma',String(closure.usuario_sigma_codigo),'Estado',statusText(closure.estado)); pair('Jornada',`${closure.jornada_inicio_hora || timeAR(closure.corte_desde_at) || 'sin inicio'} - ${closure.jornada_fin_hora || timeAR(closure.corte_hasta_at||closure.sigma_snapshot_capturado_at) || 'sin fin'}`,'Corte del cierre',`${timeAR(closure.corte_desde_at)||'00:00'} - ${timeAR(closure.corte_hasta_at||closure.sigma_snapshot_capturado_at)||'sin corte'}`);
 
   section('Fondo de caja (separado de la recaudacion)');
   pair('Fondo inicial entregado',pesos.format(num(closure.fondo_inicial)),'Fondo devuelto',pesos.format(num(closure.fondo_devuelto)));
