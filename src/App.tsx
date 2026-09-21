@@ -463,6 +463,8 @@ export default function App({ profile, onSignOut }: Props) {
       setHistoryError(error.message);
       return;
     }
+    setHistoryError(null);
+    setRetiReassigning((prev) => ({ ...prev, [Number(correction.retiroId)]: false }));
     await loadHistory(true);
   }
 
