@@ -42,6 +42,8 @@ type Props = {
 
 type Journey = {
   fecha: string;
+  jornadaId?: string;
+  jornadaNro?: number;
   usuarioCodigo: number;
   usuarioNombre: string;
   cajaCodigo: number | null;
@@ -1322,7 +1324,7 @@ export default function App({ profile, onSignOut }: Props) {
                     const stateClass = pending || editable?.estado === 'BORRADOR' ? 'pending' : latest && ['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(latest.estado) ? 'done' : 'review';
                     return (
                       <button
-                        key={`history-${journey.fecha}-${journey.usuarioCodigo}`}
+                        key={`history-${journey.fecha}-${journey.jornadaId || journey.usuarioCodigo}`}
                         className={`cashier-card ${!pending && latest && ['CERRADO', 'AJUSTES_AUTORIZADOS', 'AJUSTADO'].includes(latest.estado) ? 'completed' : ''}`}
                         disabled={pending && !editable && !isSupervisor}
                         onClick={() => {
@@ -1333,7 +1335,7 @@ export default function App({ profile, onSignOut }: Props) {
                       >
                         <div className="cashier-avatar">{journey.usuarioNombre.slice(0, 1)}</div>
                         <div>
-                          <strong>{journey.usuarioNombre}</strong>
+                          <strong>{journey.usuarioNombre}{journey.jornadaNro && journey.jornadaNro > 1 ? ` · Jornada ${journey.jornadaNro}` : ''}</strong>
                           <span>
                             {journey.cajaCodigo ? `Caja ${journey.cajaCodigo} · ` : ''}
                             Venta {money.format(Number(journey.venta || 0))}
