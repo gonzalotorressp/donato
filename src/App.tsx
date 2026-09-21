@@ -149,6 +149,8 @@ type SigmaSnapshot = {
 
 type QuickControl = {
   fecha: string;
+  jornadaId?: string;
+  jornadaNro?: number;
   usuarioCodigo: number;
   usuarioNombre: string;
   cajaCodigo: number | null;
