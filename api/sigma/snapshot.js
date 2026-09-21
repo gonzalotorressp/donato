@@ -267,9 +267,12 @@ export default async function handler(request, response) {
     const retiCarry = carryFrom(anteriorCaja, cierre);
     const comparison = compareBlindDeclaration(snapshot, cierre?.declaracion_ciega || {}, config || {}, retiCarry);
 
-    const efectivoEsperadoCierre = Number(
+    // Sigma puede registrar el RETI final por un importe levemente mayor que el
+    // efectivo CODO del tramo (p.ej. vuelto/fondo/ajuste). Ese caso no debe intentar
+    // persistir un efectivo esperado negativo: físicamente el esperado remanente es 0.
+    const efectivoEsperadoCierre = Math.max(0, Number(
       (Number(snapshot?.efectivo || 0) - Number(comparison.totalDepositario || 0) - Number(comparison.totalSupervisor || 0)).toFixed(2),
-    );
+    ));
     const efectivoEntregadoCierre = Number(
       cierre?.efectivo_entregado_cierre
         ?? cierre?.declaracion_ciega?.cierreEfectivo
