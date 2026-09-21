@@ -322,6 +322,7 @@ export default function App({ profile, onSignOut }: Props) {
   const [quickControlCriterion, setQuickControlCriterion] = useState('');
   const [editingQuickControl, setEditingQuickControl] = useState(false);
   const [retiAssignment, setRetiAssignment] = useState<Record<number, string>>({});
+  const [retiReassigning, setRetiReassigning] = useState<Record<number, boolean>>({});
   const [quickControlRetis, setQuickControlRetis] = useState<any[]>([]);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -450,10 +451,11 @@ export default function App({ profile, onSignOut }: Props) {
       p_retiro_id: correction.retiroId,
       p_importe: correction.importe,
       p_caja_original: correction.cajaRegistrada,
-      p_caja_corregida: correction.cajaSugerida,
+      p_caja_corregida: item.cajaCodigo || correction.cajaSugerida,
       p_usuario_sigma_codigo: item.usuarioCodigo,
       p_usuario_sigma_nombre: item.usuarioNombre,
       p_motivo: correction.motivo,
+      p_jornada_id: item.jornadaId || null,
     });
     if (error) {
       setHistoryError(error.message);
@@ -1298,7 +1300,29 @@ export default function App({ profile, onSignOut }: Props) {
               <div className="panel-heading"><div><p className="eyebrow">EDICIÓN CONTROL RÁPIDO</p><h2>Retiros del {displayDate(historyDate)}</h2></div>
                 <button className="secondary-button" type="button" onClick={() => setEditingQuickControl(false)}>Volver al control</button></div>
               <p className="muted-copy">Listado completo por caja de registración y orden cronológico.</p>
-              {[1,2,3,4].map((caja)=>{const rows=quickControlRetis.filter((r)=>Number(r.cajaCodigo)===caja);if(!rows.length)return null;return <div key={caja} style={{marginBottom:18}}><h3>Caja {caja}</h3>{rows.map((r)=>{const suggested=quickControls.find((x)=>Number(x.usuarioCodigo)===Number(r.usuarioSugeridoCodigo));return <div key={r.id} className="reti-review-card"><div className="reti-review-info"><strong>RETI {r.id} · {money.format(r.importe)}</strong><span>~{r.horaAproximada||'s/h'} · Registrado por: {r.registradoPorNombre||(r.registradoPorCodigo?`Usuario ${r.registradoPorCodigo}`:'sin dato')}</span><span>Cajero sugerido: {r.usuarioSugeridoNombre||'sin sugerencia'} · Estado: {r.estadoRevision}</span></div>{r.estadoRevision==='SUGERIDA'?<div className="reti-review-actions"><button className="add-row-button" type="button" disabled={!suggested} onClick={()=>suggested&&void confirmRetiCorrection(suggested,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaCodigo,cajaSugerida:r.cajaSugerida,horaAproximada:r.horaAproximada,motivo:r.motivoRevision||'Posible RETI en caja incorrecta',estado:'SUGERIDA'})}>Confirmar corrección</button><select value={retiAssignment[Number(r.id)]||''} onChange={(e)=>setRetiAssignment((prev)=>({...prev,[Number(r.id)]:e.target.value}))}><option value="">Dejar pendiente de asignar</option>{quickControls.map((x)=><option key={x.usuarioCodigo} value={String(x.usuarioCodigo)}>{x.usuarioNombre} · Caja {x.cajaCodigo||'—'}</option>)}</select><button className="secondary-button" type="button" onClick={()=>void dismissRetiCorrection(r)}>Desestimar corrección</button></div>:null}</div>;})}</div>;})}
+              {[1,2,3,4].map((caja)=>{const rows=quickControlRetis.filter((r)=>Number(r.cajaCodigo)===caja);if(!rows.length)return null;return <div key={caja} style={{marginBottom:18}}><h3>Caja {caja}</h3>{rows.map((r)=>{
+                  const suggested=quickControls.find((x)=>Number(x.usuarioCodigo)===Number(r.usuarioSugeridoCodigo) && (!r.cajaSugerida || Number(x.cajaCodigo)===Number(r.cajaSugerida))) || quickControls.find((x)=>Number(x.usuarioCodigo)===Number(r.usuarioSugeridoCodigo));
+                  const showChooser = retiReassigning[Number(r.id)] === true;
+                  const selectedJourney = quickControls.find((x)=>String(x.jornadaId || `${x.usuarioCodigo}-${x.cajaCodigo}`) === (retiAssignment[Number(r.id)] || ''));
+                  const applySelected = async () => {
+                    if (!selectedJourney) { await dismissRetiCorrection(r); return; }
+                    await confirmRetiCorrection(selectedJourney,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaOriginal || r.cajaCodigo,cajaSugerida:selectedJourney.cajaCodigo,horaAproximada:r.horaAproximada,motivo:'Asignación manual confirmada por administrador',estado:'SUGERIDA'});
+                    setRetiReassigning((prev)=>({...prev,[Number(r.id)]:false}));
+                  };
+                  return <div key={r.id} className="reti-review-card"><div className="reti-review-info"><strong>RETI {r.id} · {money.format(r.importe)}</strong><span>~{r.horaAproximada||'s/h'} · Registrado por: {r.registradoPorNombre||(r.registradoPorCodigo?`Usuario ${r.registradoPorCodigo}`:'sin dato')}</span><span>Cajero sugerido: {r.usuarioSugeridoNombre||'sin sugerencia'} · Estado: {r.estadoRevision}</span></div><div className="reti-review-actions">
+                    {r.estadoRevision==='SUGERIDA' && !showChooser ? <>
+                      <button className="add-row-button" type="button" disabled={!suggested} onClick={()=>suggested&&void confirmRetiCorrection(suggested,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaCodigo,cajaSugerida:suggested.cajaCodigo,horaAproximada:r.horaAproximada,motivo:r.motivoRevision||'Posible RETI en caja incorrecta',estado:'SUGERIDA'})}>Aceptar corrección</button>
+                      <button className="secondary-button" type="button" onClick={()=>setRetiReassigning((prev)=>({...prev,[Number(r.id)]:true}))}>Desestimar corrección</button>
+                    </> : null}
+                    {(showChooser || r.estadoRevision==='CONFIRMADA' || r.estadoRevision==='DESESTIMADA') ? <>
+                      <select value={retiAssignment[Number(r.id)]||''} onChange={(e)=>setRetiAssignment((prev)=>({...prev,[Number(r.id)]:e.target.value}))}>
+                        <option value="">Dejar pendiente de asignar</option>
+                        {quickControls.map((x)=><option key={x.jornadaId || `${x.usuarioCodigo}-${x.cajaCodigo}`} value={String(x.jornadaId || `${x.usuarioCodigo}-${x.cajaCodigo}`)}>{x.usuarioNombre} · Caja {x.cajaCodigo||'—'}{x.jornadaNro&&x.jornadaNro>1?` · Jornada ${x.jornadaNro}`:''}</option>)}
+                      </select>
+                      <button className="add-row-button" type="button" onClick={()=>void applySelected()}>OK</button>
+                    </> : null}
+                  </div></div>;
+                })}</div>;})}
             </section>
           ) : null}
 
