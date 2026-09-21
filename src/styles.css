@@ -280,3 +280,21 @@ button:disabled { cursor: not-allowed; opacity: .5; }
  .panel-heading{align-items:flex-start;gap:10px}
  .panel-heading .secondary-button{max-width:46%;white-space:normal}
 }
+
+/* Visual-only refinement for RETI review dropdowns */
+.reti-review-actions select{
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--ink,#172033);
+  background:#fff;
+  border:1px solid var(--border,#dfe3e8);
+  border-radius:12px;
+  padding:11px 38px 11px 14px;
+  line-height:1.25;
+  appearance:auto;
+}
+.reti-review-actions select option{
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--ink,#172033);
+}
