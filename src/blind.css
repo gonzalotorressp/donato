@@ -112,6 +112,10 @@
 .cashier-state.pending { background: var(--donato-yellow-soft); color: #806b00; }
 .cashier-state.review { background: #fff2e5; color: #a44d00; }
 .cashier-state.done { background: #e8f7ee; color: #067647; }
+.history-closure-result { display:flex; align-items:center; justify-content:flex-end; gap:12px; flex-wrap:wrap; }
+.history-closure-result > strong { font-size:13px; white-space:nowrap; }
+.history-closure-result > strong.negative { color:#b42318; }
+.history-closure-result > strong.positive { color:#067647; }
 
 .status-revision_supervisor { background: #fff2e5; color: #a44d00; border-color: #f0cda9; }
 
