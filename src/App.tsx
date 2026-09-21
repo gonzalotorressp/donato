@@ -1308,12 +1308,12 @@ export default function App({ profile, onSignOut }: Props) {
                   const selectedJourney = quickControls.find((x)=>String(x.jornadaId || `${x.usuarioCodigo}-${x.cajaCodigo}`) === (retiAssignment[Number(r.id)] || ''));
                   const applySelected = async () => {
                     if (!selectedJourney) { await dismissRetiCorrection(r); return; }
-                    await confirmRetiCorrection(selectedJourney,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaOriginal || r.cajaCodigo,cajaSugerida:selectedJourney.cajaCodigo,horaAproximada:r.horaAproximada,motivo:'Asignación manual confirmada por administrador',estado:'SUGERIDA'});
+                    await confirmRetiCorrection(selectedJourney,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaOriginal || r.cajaCodigo,cajaSugerida:Number(selectedJourney.cajaCodigo || r.cajaSugerida || r.cajaCodigo || 0),horaAproximada:r.horaAproximada,motivo:'Asignación manual confirmada por administrador',estado:'SUGERIDA'});
                     setRetiReassigning((prev)=>({...prev,[Number(r.id)]:false}));
                   };
                   return <div key={r.id} className="reti-review-card"><div className="reti-review-info"><strong>RETI {r.id} · {money.format(r.importe)}</strong><span>~{r.horaAproximada||'s/h'} · Registrado por: {r.registradoPorNombre||(r.registradoPorCodigo?`Usuario ${r.registradoPorCodigo}`:'sin dato')}</span><span>Cajero sugerido: {r.usuarioSugeridoNombre||'sin sugerencia'} · Estado: {r.estadoRevision}</span></div><div className="reti-review-actions">
                     {r.estadoRevision==='SUGERIDA' && !showChooser ? <>
-                      <button className="add-row-button" type="button" disabled={!suggested} onClick={()=>suggested&&void confirmRetiCorrection(suggested,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaCodigo,cajaSugerida:suggested.cajaCodigo,horaAproximada:r.horaAproximada,motivo:r.motivoRevision||'Posible RETI en caja incorrecta',estado:'SUGERIDA'})}>Aceptar corrección</button>
+                      <button className="add-row-button" type="button" disabled={!suggested} onClick={()=>suggested&&void confirmRetiCorrection(suggested,{retiroId:r.id,importe:r.importe,cajaRegistrada:r.cajaCodigo,cajaSugerida:Number(suggested.cajaCodigo || r.cajaSugerida || r.cajaCodigo || 0),horaAproximada:r.horaAproximada,motivo:r.motivoRevision||'Posible RETI en caja incorrecta',estado:'SUGERIDA'})}>Aceptar corrección</button>
                       <button className="secondary-button" type="button" onClick={()=>setRetiReassigning((prev)=>({...prev,[Number(r.id)]:true}))}>Desestimar corrección</button>
                     </> : null}
                     {(showChooser || r.estadoRevision==='CONFIRMADA' || r.estadoRevision==='DESESTIMADA') ? <>
