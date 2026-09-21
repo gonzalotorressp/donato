@@ -440,6 +440,11 @@ function physicalRetiGroup(declaration) {
         referencia: String(row?.referencia || '').trim(),
         importe: round2(row?.importe),
       })),
+    ...(number(declaration?.cierreEfectivo) > 0 ? [{
+      tipo: 'cierre',
+      referencia: 'Efectivo entregado al cierre',
+      importe: round2(declaration.cierreEfectivo),
+    }] : []),
   ];
   return {
     key: 'cierre-actual',
@@ -565,7 +570,7 @@ export function compareBlindDeclaration(snapshot, declaration, config = {}, reti
     ? round2(declaration.cuentasCorrientes.reduce((sum, row) => sum + number(row?.importe), 0))
     : 0;
 
-  const retirosDocumentados = round2(totalDepositario + totalSupervisor);
+  const retirosDocumentados = round2(totalDepositario + totalSupervisor + cierreEfectivo);
   const efectivoRendido = round2(retirosDocumentados + cierreEfectivo);
   const cloverSigma = round2(number(snapshot?.cloverDirecto) + number(snapshot?.naranja));
   const paywaySigma = round2(snapshot?.payway);
