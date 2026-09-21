@@ -87,9 +87,9 @@ function buildRetiAssignments(sales, accounting, fecha, journeys, cachedRows = [
   }
 
   const shifts = journeys.map((j) => {
-    const times = sales.filter((r) => r.fecha === fecha && Number(r.usuario) === Number(j.usuarioCodigo))
-      .map((r) => secondsFromTime(r.hora)).filter((v) => v !== null).sort((a, b) => a - b);
-    return { ...j, start: times[0] ?? null, end: times[times.length - 1] ?? null };
+    const start = secondsFromTime(j.primeraVentaHora);
+    const end = secondsFromTime(j.ultimaVentaHora);
+    return { ...j, start, end };
   });
 
   const sourceRetis = cachedRows.length
@@ -216,9 +216,9 @@ export default async function handler(request, response) {
       if (sec === null) continue;
       for (const journey of journeys) {
         if (!journey.cajaCodigo || Number(journey.cajaCodigo) === Number(retiro.cajaCodigo)) continue;
-        const times = sales.filter((r) => r.fecha === fecha && Number(r.usuario) === Number(journey.usuarioCodigo))
-          .map((r) => secondsFromTime(r.hora)).filter((v) => v !== null).sort((x, y) => x - y);
-        if (!times.length || sec < times[0] || sec > times[times.length - 1]) continue;
+        const start = secondsFromTime(journey.primeraVentaHora);
+        const end = secondsFromTime(journey.ultimaVentaHora);
+        if (start === null || end === null || sec < start || sec > end) continue;
         correctionSuggestions.push({
           retiroId: retiro.id, importe: retiro.importe,
           cajaRegistrada: retiro.cajaCodigo, cajaSugerida: journey.cajaCodigo,
@@ -246,7 +246,14 @@ export default async function handler(request, response) {
 
     const controles = journeys.map((journey) => {
       const snapshot = buildUserSnapshot(sales, accounting, fecha, journey.usuarioCodigo, journey.cajaCodigo);
-      const asignados = retiros.filter((r) => Number(r.usuarioCodigo) === Number(journey.usuarioCodigo));
+      const jornadaStart = secondsFromTime(journey.primeraVentaHora);
+      const jornadaEnd = secondsFromTime(journey.ultimaVentaHora);
+      const asignados = retiros.filter((r) => {
+        if (Number(r.usuarioCodigo) !== Number(journey.usuarioCodigo)) return false;
+        if (Number(r.cajaCodigo) !== Number(journey.cajaCodigo)) return false;
+        const sec = secondsFromTime(r.horaAproximada);
+        return sec === null || jornadaStart === null || jornadaEnd === null || (sec >= jornadaStart && sec <= jornadaEnd);
+      });
       const retirosAsignados = round2(asignados.reduce((sum, r) => sum + Number(r.importe || 0), 0));
       // Control histórico puramente Sigma:
       // Venta - RETI - Clover - Payway - Naranja - Cuenta corriente.
@@ -262,11 +269,12 @@ export default async function handler(request, response) {
       const sugerenciasCorreccion = correctionSuggestions.filter((x) => Number(x.usuarioCodigo) === Number(journey.usuarioCodigo));
       return {
         fecha,
+        jornadaId: journey.jornadaId,
+        jornadaNro: journey.jornadaNro,
         usuarioCodigo: journey.usuarioCodigo,
         usuarioNombre: journey.usuarioNombre,
         cajaCodigo: journey.cajaCodigo,
-        primeraVentaHora: sales.filter((r) => r.fecha === fecha && Number(r.usuario) === Number(journey.usuarioCodigo))
-          .map((r) => String(r.hora || '')).filter(Boolean).sort()[0] || null,
+        primeraVentaHora: journey.primeraVentaHora || null,
         ultimaVentaHora: journey.ultimaVentaHora || null,
         cantidadVentas: journey.cantidadVentas || 0,
         venta: round2(snapshot.venta),
@@ -290,7 +298,8 @@ export default async function handler(request, response) {
     const retirosSinAsignar = retiros.filter((r) => !r.usuarioCodigo);
     const payload = {
       fecha,
-      criterioReti: 'RETI asignado sólo a jornadas de la misma caja; cruces de horario con otra caja se muestran como posibles correcciones',
+      criterioJornada: 'Jornada = cajero + caja + tramo continuo; cambio de caja, intervención de otro cajero en la caja o inactividad mayor a 2 horas inicia una nueva jornada',
+      criterioReti: 'RETI asignado sólo a la jornada compatible de la misma caja; cruces con otra caja se muestran como posibles correcciones',
       diagnosticoReti: {
         cacheRows: cachedRows.length,
         retirosDisponibles,
