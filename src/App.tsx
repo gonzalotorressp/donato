@@ -1251,7 +1251,7 @@ export default function App({ profile, onSignOut }: Props) {
         if (loaded) { reportSnapshot = loaded.snapshot; reportComparison = loaded.comparison; }
       }
       await downloadClosurePdf({
-        closure: { fecha: closure.fecha, cierre_nro: closure.cierre_nro, estado: closure.estado, caja_codigo: closure.caja_codigo, usuario_sigma_codigo: closure.usuario_sigma_codigo, usuario_sigma_nombre: closure.usuario_sigma_nombre, corte_desde_at: closure.corte_desde_at, corte_hasta_at: closure.corte_hasta_at, sigma_snapshot_capturado_at: closure.sigma_snapshot_capturado_at },
+        closure: { fecha: closure.fecha, cierre_nro: closure.cierre_nro, estado: closure.estado, caja_codigo: closure.caja_codigo, usuario_sigma_codigo: closure.usuario_sigma_codigo, usuario_sigma_nombre: closure.usuario_sigma_nombre, jornada_inicio_hora: selectedJourney.primeraVentaHora, jornada_fin_hora: selectedJourney.ultimaVentaHora, corte_desde_at: closure.corte_desde_at, corte_hasta_at: closure.corte_hasta_at, sigma_snapshot_capturado_at: closure.sigma_snapshot_capturado_at },
         declaration, blindComparison: blindComparison ?? closure.diferencias_supervisor ?? null, snapshot: reportSnapshot, fullComparison: reportComparison, generatedBy: profile.nombre || profile.email,
       });
     } catch (error) { setActionError(error instanceof Error ? error.message : 'No se pudo generar el PDF'); }
