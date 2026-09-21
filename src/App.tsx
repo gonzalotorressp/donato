@@ -47,6 +47,7 @@ type Journey = {
   usuarioCodigo: number;
   usuarioNombre: string;
   cajaCodigo: number | null;
+  primeraVentaHora?: string | null;
   ultimaVentaHora?: string | null;
   cantidadVentas?: number;
   venta?: number;
