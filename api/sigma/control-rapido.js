@@ -267,7 +267,12 @@ export default async function handler(request, response) {
       const asignados = retiros.filter((r) => {
         if (Number(r.usuarioCodigo) !== Number(journey.usuarioCodigo)) return false;
         if (Number(r.cajaCodigo) !== Number(journey.cajaCodigo)) return false;
-        if (r.jornadaIdAsignada && String(r.jornadaIdAsignada) !== String(journey.jornadaId)) return false;
+        if (r.jornadaIdAsignada) {
+          // Una corrección administrativa vinculada explícitamente a esta jornada
+          // prevalece sobre la hora estimada del RETI. La hora se interpola desde IDs
+          // contables y puede quedar segundos/minutos fuera del último VENT.
+          return String(r.jornadaIdAsignada) === String(journey.jornadaId);
+        }
         const sec = secondsFromTime(r.horaAproximada);
         return sec === null || jornadaStart === null || jornadaEnd === null || (sec >= jornadaStart && sec <= jornadaEnd);
       });
