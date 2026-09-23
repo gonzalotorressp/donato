@@ -345,7 +345,7 @@ export default function App({ profile, onSignOut }: Props) {
   });
   const [approverCashDirty, setApproverCashDirty] = useState(false);
 
-  const isSupervisor = profile.rol === 'supervisor_caja' || profile.rol === 'administrador';
+  const isSupervisor = profile.rol === 'supervisor_caja' || profile.rol === 'encargado_donato' || profile.rol === 'administrador';
   const isApprover = profile.rol === 'encargado_donato' || profile.rol === 'administrador';
   const roleLabel = profile.rol === 'supervisor_caja'
     ? 'Supervisor de Caja'
