@@ -353,8 +353,15 @@ export default function App({ profile, onSignOut }: Props) {
       ? 'Encargado Donato'
       : 'Administrador';
 
+  const isAdmin = profile.rol === 'administrador';
   const canEditDeclaration = Boolean(
-    closure && isSupervisor && ['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado)
+    closure && (
+      (isSupervisor && ['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado))
+      || (isAdmin && closure.estado !== 'CANCELADO')
+    )
+  );
+  const isAdminHistoricalEdit = Boolean(
+    closure && isAdmin && !['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado)
   );
   const canApproverEditCash = Boolean(
     closure && isApprover && closure.estado === 'PENDIENTE_VALIDACION'
@@ -1125,6 +1132,30 @@ export default function App({ profile, onSignOut }: Props) {
     return updated;
   }
 
+  async function saveAdminDeclarationChanges() {
+    if (!supabase || !closure || !isAdminHistoricalEdit) return;
+    const motivo = window.prompt('Motivo de la corrección administrativa:');
+    if (!motivo?.trim()) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const { data, error } = await supabase.rpc('admin_modificar_declaracion_cierre_donato', {
+        p_cierre_id: closure.id,
+        p_declaracion: declaration,
+        p_motivo: motivo.trim(),
+      });
+      if (error) throw new Error(error.message);
+      const updated = (Array.isArray(data) ? data[0] : data) as ClosureRow | null;
+      if (updated) setClosure((current) => current ? { ...current, ...updated } : updated);
+      await loadFullSnapshot(closure.id);
+      await loadDashboard();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'No se pudo guardar la corrección administrativa');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveApproverCashChanges() {
     if (!canApproverEditCash) return;
     setBusy(true);
@@ -1705,6 +1736,14 @@ export default function App({ profile, onSignOut }: Props) {
                   <span>Observación de la revisión (opcional)</span>
                   <textarea className="review-textarea" value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} placeholder="Ej.: se corrigió un ticket cargado con importe incorrecto." />
                 </label>
+              </div>
+            ) : null}
+
+            {isAdminHistoricalEdit ? (
+              <div className="closure-actions closure-actions-single">
+                <button className="primary-button close-blind-button" type="button" onClick={() => void saveAdminDeclarationChanges()} disabled={busy}>
+                  <ShieldCheck size={18} /> {busy ? 'Guardando…' : 'Guardar corrección administrativa'}
+                </button>
               </div>
             ) : null}
 
