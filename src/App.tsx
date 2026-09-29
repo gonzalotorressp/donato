@@ -354,11 +354,11 @@ export default function App({ profile, onSignOut }: Props) {
       : 'Administrador';
 
   const isAdmin = profile.rol === 'administrador';
+  const canOperationalEdit = Boolean(
+    closure && isSupervisor && ['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado)
+  );
   const canEditDeclaration = Boolean(
-    closure && (
-      (isSupervisor && ['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado))
-      || (isAdmin && closure.estado !== 'CANCELADO')
-    )
+    closure && (canOperationalEdit || (isAdmin && closure.estado !== 'CANCELADO'))
   );
   const isAdminHistoricalEdit = Boolean(
     closure && isAdmin && !['BORRADOR', 'REVISION_SUPERVISOR'].includes(closure.estado)
@@ -1664,7 +1664,11 @@ export default function App({ profile, onSignOut }: Props) {
                 <p className="eyebrow">DATOS DEL CIERRE {closure.cierre_nro}</p>
                 <h2>{closure.estado === 'BORRADOR' ? 'Cargá lo recibido del cajero' : canEditDeclaration ? 'Revisá y corregí si corresponde' : 'Datos informados por el Supervisor'}</h2>
               </div>
-              {canEditDeclaration ? <ShieldCheck size={22} /> : <LockKeyhole size={22} />}
+              {isAdminHistoricalEdit ? (
+                <button className="primary-button" type="button" onClick={() => void saveAdminDeclarationChanges()} disabled={busy}>
+                  <ShieldCheck size={17} /> {busy ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+              ) : canEditDeclaration ? <ShieldCheck size={22} /> : <LockKeyhole size={22} />}
             </div>
 
             <div className="form-section">
@@ -1747,7 +1751,7 @@ export default function App({ profile, onSignOut }: Props) {
               </div>
             ) : null}
 
-            {canEditDeclaration ? (
+            {canOperationalEdit ? (
               <>
                 {firstCloseDone
                   ? <p className="close-help">Este es el segundo control del Cierre {closure.cierre_nro}. Si siguen existiendo diferencias, pasa al Encargado Donato.</p>
