@@ -1967,7 +1967,6 @@ export default function App({ profile, onSignOut }: Props) {
             {closure.estado === 'AJUSTES_AUTORIZADOS' ? <div className="authorized-box"><CheckCircle2 /><div><strong>Ajustes autorizados</strong><p>Recién en este estado se habilitará la ejecución de asientos en Sigma.</p><button className="secondary-button" disabled>Ejecutar asientos en Sigma · próxima etapa</button></div></div> : null}
           </section>
         ) : null}
-        </div>
       </main>
     </div>
   );
