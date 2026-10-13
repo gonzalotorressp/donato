@@ -326,6 +326,22 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockAssignee,setStockAssignee] = useState('');
   const [stockArticleCode,setStockArticleCode] = useState('');
   const [stockArticleName,setStockArticleName] = useState('');
+  const [stockCatalog,setStockCatalog] = useState<any[]>([]);
+  const [stockSearch,setStockSearch] = useState('');
+  async function stockSearchCatalog(){
+    if(!supabase||stockSearch.trim().length<2)return;
+    setStockError('');setStockBusy(true);
+    const {data,error}=await supabase.rpc('donato_stock_buscar_articulos',{p_texto:stockSearch.trim(),p_limite:30});
+    if(error)setStockError(error.message);else setStockCatalog(data||[]);
+    setStockBusy(false);
+  }
+  async function stockAddFromCatalog(code:string){
+    if(!supabase||!stockSelected)return;
+    setStockBusy(true);setStockError('');
+    const {error}=await supabase.rpc('donato_stock_agregar_articulo',{p_conteo:stockSelected,p_codigo:code});
+    if(error)setStockError(error.message);else await stockOpen(stockSelected);
+    setStockBusy(false);
+  }
   async function stockRefresh(){
     if(!supabase)return;
     const {data,error}=await supabase.from('donato_stock_conteos').select('id,titulo,deposito,estado,creado_at,asignado_a,snapshot_at').order('creado_at',{ascending:false}).limit(100);
@@ -1392,7 +1408,7 @@ export default function App({ profile, onSignOut }: Props) {
           <div style={{display:'grid',gap:8}}>
             {stockCounts.map(c=><button key={c.id} className="back-button" onClick={()=>void stockOpen(c.id)}>{c.titulo} · {c.estado} · Dep. {c.deposito}{c.snapshot_at?' · Snapshot registrado':' · Sin snapshot'}</button>)}
           </div>
-          {stockSelected && <div style={{marginTop:20}}>{profile.rol==='administrador' && <div><input placeholder='Código Sigma' value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder='Descripción' value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button onClick={()=>void stockAddItem()}>Agregar artículo</button><input placeholder='UUID controlador' value={stockAssignee} onChange={e=>setStockAssignee(e.target.value)}/><button onClick={()=>void stockAssign('EN_CURSO')}>Asignar e iniciar</button><button onClick={()=>void stockAssign('EN_REVISION')}>Enviar a revisión</button></div>}
+          {stockSelected && <div style={{marginTop:20}}>{profile.rol==='administrador' && <div><div style={{display:'grid',gap:8,marginBottom:12}}><h3>Buscar en catálogo Sigma sincronizado</h3><input placeholder="Código, EAN o descripción" value={stockSearch} onChange={e=>setStockSearch(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void stockSearchCatalog();}}/><button disabled={stockBusy} onClick={()=>void stockSearchCatalog()}>Buscar artículos</button>{stockCatalog.map(a=><div key={a.articulo_codigo} style={{display:'flex',gap:8,alignItems:'center'}}><span>{a.articulo_codigo} · {a.articulo_nombre} · EAN {a.ean_unidad||'—'}</span><button disabled={stockBusy} onClick={()=>void stockAddFromCatalog(a.articulo_codigo)}>Agregar</button></div>)}</div><input placeholder='Código Sigma' value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder='Descripción' value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button onClick={()=>void stockAddItem()}>Agregar artículo</button><input placeholder='UUID controlador' value={stockAssignee} onChange={e=>setStockAssignee(e.target.value)}/><button onClick={()=>void stockAssign('EN_CURSO')}>Asignar e iniciar</button><button onClick={()=>void stockAssign('EN_REVISION')}>Enviar a revisión</button></div>}
             <h2>Artículos del conteo</h2>
             <p>{stockItems.length} artículos · El controlador nunca ve existencias Sigma.</p>
             <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
