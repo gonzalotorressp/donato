@@ -1564,6 +1564,7 @@ export default function App({ profile, onSignOut }: Props) {
               <div className="empty-state"><FileText /><div><strong>No hay cierres para mostrar</strong><p>{historyDate ? 'No se registraron cierres en esa fecha.' : 'Todavía no hay cierres en el historial.'}</p></div></div>
             )}
           </section> : null}
+          </div>
         </main>
       </div>
     );
