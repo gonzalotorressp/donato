@@ -312,6 +312,43 @@ function comparisonMessage(result: BlindComparison) {
 
 export default function App({ profile, onSignOut }: Props) {
   const [today] = useState(todayArgentina());
+  const [stockMode,setStockMode] = useState(false);
+  const [stockCounts,setStockCounts] = useState<any[]>([]);
+  const [stockTitle,setStockTitle] = useState('');
+  const [stockError,setStockError] = useState('');
+  const [stockBusy,setStockBusy] = useState(false);
+  const [stockSelected,setStockSelected] = useState<string | null>(null);
+  const [stockItems,setStockItems] = useState<any[]>([]);
+  const [stockCode,setStockCode] = useState('');
+  const [stockQty,setStockQty] = useState('');
+  async function stockRefresh(){
+    if(!supabase)return;
+    const {data,error}=await supabase.from('donato_stock_conteos').select('id,titulo,deposito,estado,creado_at,asignado_a,snapshot_at').order('creado_at',{ascending:false}).limit(100);
+    if(error)setStockError(error.message);else setStockCounts(data||[]);
+  }
+  async function stockOpen(id:string){
+    if(!supabase)return;
+    setStockSelected(id);setStockError('');
+    const {data,error}=profile.rol==='administrador'
+      ? await supabase.from('donato_stock_conteo_items').select('*').eq('conteo_id',id)
+      : await supabase.rpc('donato_stock_mis_items',{p_conteo:id});
+    if(error)setStockError(error.message);else setStockItems(data||[]);
+  }
+  async function stockCreate(){
+    if(!supabase||profile.rol!=='administrador'||!stockTitle.trim())return;
+    setStockBusy(true);setStockError('');
+    const {error}=await supabase.from('donato_stock_conteos').insert({titulo:stockTitle.trim(),deposito:'03',creado_por:profile.userId});
+    if(error)setStockError(error.message);else {setStockTitle('');await stockRefresh();}
+    setStockBusy(false);
+  }
+  async function stockRegister(){
+    if(!supabase||!stockSelected||!stockCode.trim()||stockQty==='')return;
+    const item=stockItems.find(x=>x.articulo_codigo===stockCode.trim()||x.ean===stockCode.trim());
+    if(!item){setStockError('Artículo no incluido en este conteo');return;}
+    const {error}=await supabase.rpc('donato_stock_registrar',{p_item:item.id,p_cantidad:Number(stockQty)});
+    if(error)setStockError(error.message);else {setStockCode('');setStockQty('');await stockOpen(stockSelected);}
+  }
+
   const [journeys, setJourneys] = useState<Journey[]>([]);
   const [closures, setClosures] = useState<ClosureRow[]>([]);
   const [dashboardMode, setDashboardMode] = useState<'today' | 'history'>('today');
@@ -1302,6 +1339,7 @@ export default function App({ profile, onSignOut }: Props) {
         <aside className="sidebar">
           <div className="sidebar-brand"><DonatoBrand /></div>
           <nav>
+          <button className={stockMode ? 'nav-item active' : 'nav-item'} onClick={() => {setStockMode(true);setStockSelected(null);void stockRefresh();}}><ClipboardCheck size={18}/> Control de stock</button>
             <button className="nav-item" onClick={() => { setDashboardMode('today'); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
             <button className="nav-item active"><Clock3 size={18} /> Historial</button>
             <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
@@ -1314,6 +1352,30 @@ export default function App({ profile, onSignOut }: Props) {
         </aside>
 
         <main className="workspace">
+        {stockMode ? <section className="panel" style={{padding:24}}>
+          <button className="back-button" onClick={()=>setStockMode(false)}>Volver a cierre de caja</button>
+          <h1>Control de stock Donato</h1>
+          <p>Conteos ciegos · Depósito 03 · Los ajustes de Sigma requieren conciliación y aprobación.</p>
+          {stockError && <p role="alert" style={{color:'#b42318'}}>{stockError}</p>}
+          {profile.rol==='administrador' && <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:20}}>
+            <input placeholder="Nombre del conteo" value={stockTitle} onChange={e=>setStockTitle(e.target.value)}/>
+            <button className="primary-button" disabled={stockBusy} onClick={()=>void stockCreate()}>Crear borrador</button>
+          </div>}
+          <div style={{display:'grid',gap:8}}>
+            {stockCounts.map(c=><button key={c.id} className="back-button" onClick={()=>void stockOpen(c.id)}>{c.titulo} · {c.estado} · Dep. {c.deposito}{c.snapshot_at?' · Snapshot registrado':' · Sin snapshot'}</button>)}
+          </div>
+          {stockSelected && <div style={{marginTop:20}}>
+            <h2>Artículos del conteo</h2>
+            <p>{stockItems.length} artículos · El controlador nunca ve existencias Sigma.</p>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              <input placeholder="EAN o código" value={stockCode} onChange={e=>setStockCode(e.target.value)}/>
+              <input type="number" min="0" step="0.001" placeholder="Cantidad contada" value={stockQty} onChange={e=>setStockQty(e.target.value)}/>
+              <button className="primary-button" onClick={()=>void stockRegister()}>Registrar conteo</button>
+            </div>
+            {stockItems.map(i=><p key={i.id}>{i.articulo_codigo} · {i.descripcion} · {i.cantidad_contada==null?'Pendiente':i.cantidad_contada+' unidades'}</p>)}
+          </div>}
+        </section> : null}
+        <div style={{display:stockMode?'none':undefined}}>
           <header className="topbar">
             <div>
               <p className="eyebrow">HISTORIAL</p>
@@ -1859,6 +1921,7 @@ export default function App({ profile, onSignOut }: Props) {
             {closure.estado === 'AJUSTES_AUTORIZADOS' ? <div className="authorized-box"><CheckCircle2 /><div><strong>Ajustes autorizados</strong><p>Recién en este estado se habilitará la ejecución de asientos en Sigma.</p><button className="secondary-button" disabled>Ejecutar asientos en Sigma · próxima etapa</button></div></div> : null}
           </section>
         ) : null}
+        </div>
       </main>
     </div>
   );
