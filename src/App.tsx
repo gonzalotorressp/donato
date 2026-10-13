@@ -321,6 +321,11 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockItems,setStockItems] = useState<any[]>([]);
   const [stockCode,setStockCode] = useState('');
   const [stockQty,setStockQty] = useState('');
+  const [stockSector,setStockSector] = useState('ALMACEN');
+  const [stockMeasurements,setStockMeasurements] = useState<any[]>([]);
+  const [stockAssignee,setStockAssignee] = useState('');
+  const [stockArticleCode,setStockArticleCode] = useState('');
+  const [stockArticleName,setStockArticleName] = useState('');
   async function stockRefresh(){
     if(!supabase)return;
     const {data,error}=await supabase.from('donato_stock_conteos').select('id,titulo,deposito,estado,creado_at,asignado_a,snapshot_at').order('creado_at',{ascending:false}).limit(100);
@@ -333,6 +338,10 @@ export default function App({ profile, onSignOut }: Props) {
       ? await supabase.from('donato_stock_conteo_items').select('*').eq('conteo_id',id)
       : await supabase.rpc('donato_stock_mis_items',{p_conteo:id});
     if(error)setStockError(error.message);else setStockItems(data||[]);
+    const measurements=profile.rol==='administrador'
+      ? await supabase.from('donato_stock_mediciones').select('*').in('item_id',(data||[]).length?(data||[]).map((x:any)=>x.id):['00000000-0000-0000-0000-000000000000'])
+      : await supabase.rpc('donato_stock_mis_mediciones',{p_conteo:id});
+    if(measurements.error)setStockError(measurements.error.message);else setStockMeasurements(measurements.data||[]);
   }
   async function stockCreate(){
     if(!supabase||profile.rol!=='administrador'||!stockTitle.trim())return;
@@ -345,8 +354,27 @@ export default function App({ profile, onSignOut }: Props) {
     if(!supabase||!stockSelected||!stockCode.trim()||stockQty==='')return;
     const item=stockItems.find(x=>x.articulo_codigo===stockCode.trim()||x.ean===stockCode.trim());
     if(!item){setStockError('Artículo no incluido en este conteo');return;}
-    const {error}=await supabase.rpc('donato_stock_registrar',{p_item:item.id,p_cantidad:Number(stockQty)});
+    if(!Number.isFinite(Number(stockQty))||Number(stockQty)<0){setStockError('Cantidad inválida');return;}
+    setStockBusy(true);setStockError('');
+    const {error}=await supabase.rpc('donato_stock_registrar_sector',{p_item:item.id,p_sector:stockSector,p_cantidad:Number(stockQty),p_metodo:item.ean===stockCode.trim()?'EAN':'MANUAL'});
     if(error)setStockError(error.message);else {setStockCode('');setStockQty('');await stockOpen(stockSelected);}
+    setStockBusy(false);
+  }
+  async function stockAddItem(){
+    if(!supabase||!stockSelected||!stockArticleCode.trim()||!stockArticleName.trim())return;
+    setStockBusy(true);setStockError('');
+    const {error}=await supabase.from('donato_stock_conteo_items').insert({conteo_id:stockSelected,articulo_codigo:stockArticleCode.trim(),descripcion:stockArticleName.trim()});
+    if(error)setStockError(error.message);else {setStockArticleCode('');setStockArticleName('');await stockOpen(stockSelected);}
+    setStockBusy(false);
+  }
+  async function stockAssign(status:'EN_CURSO'|'EN_REVISION'){
+    if(!supabase||!stockSelected)return;
+    setStockBusy(true);setStockError('');
+    const changes:any={estado:status};
+    if(status==='EN_CURSO'){if(!stockAssignee.trim()){setStockError('Ingresá el UUID del controlador');setStockBusy(false);return;}changes.asignado_a=stockAssignee.trim();}
+    const {error}=await supabase.from('donato_stock_conteos').update(changes).eq('id',stockSelected);
+    if(error)setStockError(error.message);else await stockRefresh();
+    setStockBusy(false);
   }
 
   const [journeys, setJourneys] = useState<Journey[]>([]);
@@ -1364,15 +1392,16 @@ export default function App({ profile, onSignOut }: Props) {
           <div style={{display:'grid',gap:8}}>
             {stockCounts.map(c=><button key={c.id} className="back-button" onClick={()=>void stockOpen(c.id)}>{c.titulo} · {c.estado} · Dep. {c.deposito}{c.snapshot_at?' · Snapshot registrado':' · Sin snapshot'}</button>)}
           </div>
-          {stockSelected && <div style={{marginTop:20}}>
+          {stockSelected && <div style={{marginTop:20}}>{profile.rol==='administrador' && <div><input placeholder='Código Sigma' value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder='Descripción' value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button onClick={()=>void stockAddItem()}>Agregar artículo</button><input placeholder='UUID controlador' value={stockAssignee} onChange={e=>setStockAssignee(e.target.value)}/><button onClick={()=>void stockAssign('EN_CURSO')}>Asignar e iniciar</button><button onClick={()=>void stockAssign('EN_REVISION')}>Enviar a revisión</button></div>}
             <h2>Artículos del conteo</h2>
             <p>{stockItems.length} artículos · El controlador nunca ve existencias Sigma.</p>
             <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
               <input placeholder="EAN o código" value={stockCode} onChange={e=>setStockCode(e.target.value)}/>
               <input type="number" min="0" step="0.001" placeholder="Cantidad contada" value={stockQty} onChange={e=>setStockQty(e.target.value)}/>
-              <button className="primary-button" onClick={()=>void stockRegister()}>Registrar conteo</button>
+              <select value={stockSector} onChange={e=>setStockSector(e.target.value)}>{[['ALMACEN','Almacén'],['GONDOLA','Góndola'],['CAMARA','Cámara'],['PUNTERA','Puntera'],['EXHIBICION','Exhibición'],['OTRO','Otro']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>
+              <button className="primary-button" disabled={stockBusy} onClick={()=>void stockRegister()}>Confirmar sector</button>
             </div>
-            {stockItems.map(i=><p key={i.id}>{i.articulo_codigo} · {i.descripcion} · {i.cantidad_contada==null?'Pendiente':i.cantidad_contada+' unidades'}</p>)}
+            {stockItems.map(i=><div key={i.id}><strong>{i.articulo_codigo} · {i.descripcion}</strong>{stockMeasurements.filter(m=>m.item_id===i.id).map(m=><p key={m.id}>{m.sector}: {m.cantidad} u. · {new Date(m.confirmado_at).toLocaleString('es-AR')}</p>)}</div>)}
           </div>}
         </section> : null}
         <div style={{display:stockMode?'none':undefined}}>
