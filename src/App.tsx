@@ -1384,8 +1384,8 @@ export default function App({ profile, onSignOut }: Props) {
           <div className="sidebar-brand"><DonatoBrand /></div>
           <nav>
           <button className={stockMode ? 'nav-item active' : 'nav-item'} onClick={() => {setStockMode(true);setStockSelected(null);void stockRefresh();}}><ClipboardCheck size={18}/> Control de stock</button>
-            <button className="nav-item" onClick={() => { setDashboardMode('today'); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
-            <button className="nav-item active"><Clock3 size={18} /> Historial</button>
+            <button className="nav-item" onClick={() => { setStockMode(false); setDashboardMode('today'); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
+            <button className={stockMode ? 'nav-item' : 'nav-item active'} onClick={() => { setStockMode(false); void loadHistory(); }}><Clock3 size={18} /> Historial</button>
             <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
           </nav>
           <div className="sidebar-user">
@@ -1576,6 +1576,7 @@ export default function App({ profile, onSignOut }: Props) {
         <aside className="sidebar">
           <div className="sidebar-brand"><DonatoBrand /></div>
           <nav>
+            <button className="nav-item" onClick={() => { setStockMode(true); setDashboardMode('history'); setSelectedJourney(null); setClosure(null); setStockSelected(null); void stockRefresh(); }}><ClipboardCheck size={18} /> Control de stock</button>
             <button className={`nav-item ${dashboardMode === 'today' ? 'active' : ''}`} onClick={() => { setDashboardMode('today'); setSelectedJourney(null); setClosure(null); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
             <button className={`nav-item ${dashboardMode === 'history' ? 'active' : ''}`} onClick={() => { setDashboardMode('history'); setSelectedJourney(null); setClosure(null); void loadHistory(); }}><Clock3 size={18} /> Historial</button>
             <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
