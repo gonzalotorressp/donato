@@ -1533,7 +1533,7 @@ export default function App({ profile, onSignOut }: Props) {
                 </div>
                 <button className="primary-button" disabled={stockBusy||stockCurrent?.estado!=='EN_CURSO'||!stockCode.trim()||stockQty===''} onClick={()=>void stockRegister()}>Confirmar cantidad contada</button>
               </div>
-            </div>
+            </div>}
             <div style={{marginTop:20}}>
               <h3>Artículos incluidos ({stockItems.length})</h3>
               {stockView==='prepare' && stockDraft && stockItems.length>0 && <button type="button" className="stock-clear-action" disabled={stockBusy} onClick={()=>{if(window.confirm('¿Quitar todos los artículos de este borrador?'))void stockBulkRemove(stockItems.map(i=>i.articulo_codigo));}}>Quitar todos</button>}
