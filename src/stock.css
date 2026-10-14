@@ -1,0 +1,32 @@
+/* Scoped styles: Donato stock-count screen only. */
+.stock-workspace{max-width:920px;margin:0 auto}
+.stock-workspace h1{font-size:clamp(1.65rem,5vw,2.25rem);line-height:1.15}
+.stock-workspace h2{font-size:1.3rem;line-height:1.3}
+.stock-workspace h3{font-size:1.12rem;line-height:1.35}
+.stock-workspace input,.stock-workspace select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:12px 13px;min-height:46px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;font:inherit;font-size:16px;color:#17233a}
+.stock-workspace input:focus,.stock-workspace select:focus{outline:2px solid #8eafd9;outline-offset:1px}
+.stock-workspace button{font:inherit;min-height:42px;border-radius:9px;padding:9px 13px;white-space:normal}
+.stock-workspace button.primary-button{background:#245a9d;color:#fff;border:0;font-weight:650}
+.stock-workspace button:disabled{opacity:.55;cursor:not-allowed}
+.stock-workspace details{border-top:1px solid #e5e7eb;padding-top:12px}
+.stock-workspace details summary{cursor:pointer;font-size:14px;color:#48617f}
+.stock-search-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:stretch}
+.stock-helper{font-size:13px;color:#64748b;line-height:1.5;margin:8px 0 0}
+.stock-results-heading{font-size:14px;font-weight:600;color:#294566;margin:16px 0 8px}
+.stock-results-list{max-height:420px;overflow:auto;border:1px solid #e2e8f0;border-radius:12px}
+.stock-result{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px;border-bottom:1px solid #e2e8f0}
+.stock-result:last-child{border-bottom:0}
+.stock-result-info{min-width:0;overflow-wrap:anywhere}
+.stock-result-info strong{display:block;font-size:14px;line-height:1.35}
+.stock-result-info small{display:block;font-size:12px;color:#64748b;margin-top:5px}
+.stock-workspace .stock-add-button{flex-shrink:0;background:#e8f0fa;border:1px solid #a6c2e5;color:#1d4d83;font-weight:700}
+.stock-workspace .stock-added{flex-shrink:0;background:#eef6f0;border:1px solid #c6dfce;color:#36734d}
+@media(max-width:600px){
+.stock-workspace{padding:16px!important}
+.stock-workspace h1{font-size:1.75rem}
+.stock-search-bar{grid-template-columns:1fr}
+.stock-search-bar button{width:100%}
+.stock-result{align-items:flex-start;gap:8px}
+.stock-result .stock-add-button,.stock-result .stock-added{font-size:13px;padding:8px}
+.stock-workspace .primary-button{max-width:100%}
+}
