@@ -1,7 +1,7 @@
 import { requireAuthenticatedUser, userHasCapability } from '../../server/supabase-auth.js';
 
 const validCode = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0;
-const validDeposit = (value) => /^\\d{1,3}$/.test(String(value || ''));
+const validDeposit = (value) => /^\d{1,3}$/.test(String(value || ''));
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     const token = process.env.SIGMA_API_TOKEN;
     if (!base || !token) return res.status(503).json({ error: 'Falta configuración de Sigma en el servidor' });
 
-    const url = new URL(base.replace(/\\/$/, '') + '/ventas_stock');
+    const url = new URL(base.replace(/\/$/, '') + '/ventas_stock');
     url.searchParams.set('codigo', codigo);
     url.searchParams.set('deposito', deposito);
     const response = await fetch(url, { headers: { 'X-Auth-Token': token, accept: 'application/json' }, signal: AbortSignal.timeout(18000) });
