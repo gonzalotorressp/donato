@@ -429,7 +429,7 @@ export default function App({ profile, onSignOut }: Props) {
     setStockBusy(false);
   }
   async function stockSendReview(){
-    if(!supabase||!stockSelected)return;
+    if(!supabase||!stockSelected||!window.confirm('¿Finalizar el conteo? No podrás agregar ni modificar cantidades después de confirmarlo.'))return;
     setStockBusy(true);setStockError('');
     const {error}=await supabase.rpc('donato_stock_enviar_revision',{p_conteo:stockSelected});
     if(error)setStockError(error.message);else {await stockRefresh();setStockSelected(null);}
@@ -1582,7 +1582,7 @@ export default function App({ profile, onSignOut }: Props) {
             </div>}
             {stockView==='count' && stockCurrent?.estado==='EN_CURSO' && <div style={{marginTop:20,padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
               <h3 style={{marginTop:0}}>Registrar cantidades por sector</h3>
-              {stockCurrent?.estado==='EN_CURSO' && <button disabled={stockBusy||stockMeasurements.length===0} onClick={()=>void stockSendReview()}>Terminé: enviar a revisión</button>}
+              {stockCurrent?.estado==='EN_CURSO' && <button disabled={stockBusy||stockMeasurements.length===0} onClick={()=>void stockSendReview()}>Finalizar conteo</button>}
               <p>Contá físicamente cada ubicación. Podés volver a contar el mismo artículo en otro sector.</p>
               <div style={{display:'grid',gap:10}}>
                 <div className="stock-code-entry"><input placeholder="Escanear EAN o ingresar código" value={stockCode} onChange={e=>setStockCode(e.target.value)}/><button type="button" onClick={()=>stockScanning?stockStopScan():void stockStartScan()}>{stockScanning?'Cerrar cámara':'📷 Escanear'}</button></div>
