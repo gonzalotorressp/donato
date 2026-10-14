@@ -30,3 +30,13 @@
 .stock-result .stock-add-button,.stock-result .stock-added{font-size:13px;padding:8px}
 .stock-workspace .primary-button{max-width:100%}
 }
+
+.stock-filter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+.stock-filter-grid label{display:grid;gap:6px;font-size:13px;font-weight:650;color:#43536b}
+.stock-bulk-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 8px;padding:12px;border-radius:10px;background:#edf4fb}
+.stock-bulk-actions label{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:650;margin-right:auto}
+.stock-workspace .stock-bulk-actions input[type=checkbox],.stock-workspace .stock-select-row input[type=checkbox]{width:19px;height:19px;min-height:19px;flex-shrink:0;accent-color:#245a9d}
+.stock-workspace .stock-select-row{cursor:pointer}
+.stock-workspace .stock-select-row:has(input:checked){background:#eff6ff}
+.stock-workspace .stock-bulk-actions button{min-height:38px}
+@media(max-width:600px){.stock-filter-grid{grid-template-columns:1fr}.stock-bulk-actions{align-items:stretch}.stock-bulk-actions label{width:100%}.stock-bulk-actions button{flex:1 1 140px}.stock-result{align-items:center}}
