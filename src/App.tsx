@@ -1561,7 +1561,14 @@ export default function App({ profile, onSignOut }: Props) {
             <button className="back-button" style={{marginBottom:16}} onClick={()=>{setStockSelected(null);void stockRefresh();void stockLoadOptions();}}>← Volver</button>
             <h2 style={{marginTop:0}}>{stockCounts.find(c=>c.id===stockSelected)?.titulo||'Detalle del conteo'}</h2>
             <p>{stockItems.length} artículos seleccionados · {stockMeasurements.length} registros de conteo</p>
-            {stockView==='prepare' && profile.rol==='administrador' && <div style={{display:'grid',gap:16}}>
+            {profile.rol==='administrador' && <div className="stock-sigma-test" style={{margin:'14px 0',padding:14,border:'1px solid #dce3ec',borderRadius:12}}>
+            <strong>Conexión con Sigma · Prueba</strong>
+                          <div>
+                <button type="button" disabled={stockSigmaTesting} onClick={()=>void stockTestSigma()}>{stockSigmaTesting?'Consultando Sigma…':'Probar conexión Sigma · artículo 154'}</button>
+                {stockSigmaTest && <p><strong>Conexión correcta:</strong> {stockSigmaTest.stockFisico.toLocaleString('es-AR')} unidades en depósito {stockSigmaTest.deposito}. Consulta: {new Date(stockSigmaTest.capturadoAt).toLocaleString('es-AR')}. <strong>Solo prueba, no modifica la foto.</strong></p>}
+              </div>
+          </div>}
+          {stockView==='prepare' && profile.rol==='administrador' && <div style={{display:'grid',gap:16}}>
               <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
                 <h3 style={{marginTop:0}}>1. Seleccionar artículos</h3>
                 <p>Buscá por descripción, código o EAN y agregá los productos que quieras controlar.</p>
@@ -1621,10 +1628,7 @@ export default function App({ profile, onSignOut }: Props) {
             </div>}
             {stockView==='prepare' && profile.rol==='administrador' && stockCurrent?.estado==='EN_REVISION' && <div className="stock-review-panel">
               <h3>Revisión de diferencias</h3>
-              <div className="stock-sigma-test">
-                <button type="button" disabled={stockSigmaTesting} onClick={()=>void stockTestSigma()}>{stockSigmaTesting?'Consultando Sigma…':'Probar conexión Sigma · artículo 154'}</button>
-                {stockSigmaTest && <p><strong>Conexión correcta:</strong> {stockSigmaTest.stockFisico.toLocaleString('es-AR')} unidades en depósito {stockSigmaTest.deposito}. Consulta: {new Date(stockSigmaTest.capturadoAt).toLocaleString('es-AR')}. <strong>Solo prueba, no modifica la foto.</strong></p>}
-              </div>
+
               {!stockCurrent?.snapshot_at && <p className="stock-review-warning">Todavía no hay foto del stock de Sigma para este conteo. Las diferencias no se pueden calcular correctamente hasta capturar y validar una referencia temporal.</p>}
               <div className="stock-review-table"><table><thead><tr><th>Artículo</th><th>Stock Sigma</th><th>Contado</th><th>Diferencia</th></tr></thead><tbody>
                 {stockReviewRows.map(row=><tr key={row.articulo_codigo}><td>{row.descripcion}<small>{row.articulo_codigo}</small></td><td>{row.stock_sigma==null?'Sin foto':Number(row.stock_sigma).toLocaleString('es-AR')}</td><td>{Number(row.cantidad_contada).toLocaleString('es-AR')}</td><td>{row.diferencia==null?'—':Number(row.diferencia).toLocaleString('es-AR')}</td></tr>)}
