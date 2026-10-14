@@ -315,6 +315,8 @@ export default function App({ profile, onSignOut }: Props) {
   const [today] = useState(todayArgentina());
   const [stockMode,setStockMode] = useState(false);
   const [stockCounts,setStockCounts] = useState<any[]>([]);
+  const [stockView,setStockView] = useState<'home'|'prepare'|'count'>('home');
+  const [stockCanCount,setStockCanCount] = useState(false);
   const [stockTitle,setStockTitle] = useState('');
   const [stockError,setStockError] = useState('');
   const [stockBusy,setStockBusy] = useState(false);
@@ -338,7 +340,10 @@ export default function App({ profile, onSignOut }: Props) {
   const stockDraft=stockCurrent?.estado==='BORRADOR';
   const stockCanSearch=stockSearch.trim().length>=2||Object.values(stockFilters).some(Boolean);
   async function stockLoadOptions(){
-    if(!supabase||profile.rol!=='administrador')return;
+    if(!supabase)return;
+    const {data:canCount}=await supabase.rpc('has_capability',{capability_code:'donato.stock.controlar'});
+    setStockCanCount(Boolean(canCount)||profile.rol==='administrador');
+    if(profile.rol!=='administrador')return;
     const [filters,controllers]=await Promise.all([supabase.rpc('donato_stock_catalogo_filtros'),supabase.rpc('donato_stock_controladores')]);
     if(!filters.error&&filters.data)setStockFilterOptions(filters.data);
     if(!controllers.error)setStockControllers(controllers.data||[]);
@@ -362,7 +367,7 @@ export default function App({ profile, onSignOut }: Props) {
     setStockBusy(true);setStockError('');
     const {data,error}=await supabase.rpc('donato_stock_tomar_pendiente');
     if(error)setStockError(error.message);
-    else if(data){await stockRefresh();await stockOpen(data);}
+    else if(data){await stockRefresh();setStockView('count');await stockOpen(data);}
     else setStockError('No hay conteos pendientes disponibles.');
     setStockBusy(false);
   }
@@ -1428,7 +1433,7 @@ export default function App({ profile, onSignOut }: Props) {
         <aside className="sidebar">
           <div className="sidebar-brand"><DonatoBrand /></div>
           <nav>
-          <button className={stockMode ? 'nav-item active' : 'nav-item'} onClick={() => {setStockMode(true);setStockSelected(null);void stockRefresh();void stockLoadOptions();}}><ClipboardCheck size={18}/> Control de stock</button>
+          <button className={stockMode ? 'nav-item active' : 'nav-item'} onClick={() => {setStockMode(true);setStockView('home');setStockSelected(null);void stockRefresh();void stockLoadOptions();}}><ClipboardCheck size={18}/> Control de stock</button>
             <button className="nav-item" onClick={() => { setStockMode(false); setDashboardMode('today'); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
             <button className={stockMode ? 'nav-item' : 'nav-item active'} onClick={() => { setStockMode(false); void loadHistory(); }}><Clock3 size={18} /> Historial</button>
             <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
@@ -1447,32 +1452,35 @@ export default function App({ profile, onSignOut }: Props) {
             <button className="back-button" onClick={()=>{setStockMode(false);setDashboardMode('today');void loadDashboard();}}>Volver a cajas</button>
           </div>
           {stockError && <div className="info-box" role="alert" style={{marginBottom:16,color:'#b42318'}}>{stockError}</div>}
-          {!stockSelected ? <>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:12,marginBottom:24}}>
-              <div className="metric"><span>En curso</span><strong>{stockCounts.filter(c=>c.estado==='EN_CURSO').length}</strong></div>
-              <div className="metric"><span>En revisión</span><strong>{stockCounts.filter(c=>c.estado==='EN_REVISION').length}</strong></div>
-              <div className="metric"><span>Borradores</span><strong>{stockCounts.filter(c=>c.estado==='BORRADOR').length}</strong></div>
-            </div>
-            {profile.rol!=='administrador' && <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14,marginBottom:20}}><h2>Tu próximo control</h2><p>Un solo conteo activo por controlador.</p><button className="primary-button" disabled={stockBusy||stockCounts.some(c=>c.estado==='EN_CURSO')} onClick={()=>void stockTakePending()}>Tomar siguiente conteo pendiente</button></div>}
-            {profile.rol==='administrador' && <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14,marginBottom:20}}>
-              <h2 style={{marginTop:0}}>Nuevo conteo</h2>
-              <p>Creá un borrador. Después elegí los artículos y asigná quién los contará.</p>
+          {stockView==='home' ? <div className="stock-entry-grid">
+            {profile.rol==='administrador' && <button className="stock-entry-card" onClick={()=>{setStockView('prepare');setStockSelected(null);void stockRefresh();void stockLoadOptions();}}><strong>Generar nuevo control</strong><span>Seleccionar artículos, preparar borradores y publicar conteos.</span><span className="stock-entry-link">Ir a preparación →</span></button>}
+            {(stockCanCount||profile.rol==='administrador') && <button className="stock-entry-card" onClick={()=>{setStockView('count');setStockSelected(null);void stockRefresh();}}><strong>Iniciar control de stock</strong><span>Ver conteos publicados, tomar uno pendiente o continuar el asignado.</span><span className="stock-entry-link">Ir a conteos →</span></button>}
+          </div> : !stockSelected ? <>
+            <button className="back-button" style={{marginBottom:16}} onClick={()=>setStockView('home')}>← Control de stock</button>
+            {stockView==='prepare' && profile.rol==='administrador' && <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14,marginBottom:20}}>
+              <h2 style={{marginTop:0}}>Generar nuevo control</h2>
+              <p>Creá un borrador, seleccioná artículos y publicalo para los controladores.</p>
               <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
                 <input aria-label="Nombre del conteo" style={{flex:'1 1 220px',minWidth:0}} placeholder="Ej.: Góndolas perfumería" value={stockTitle} onChange={e=>setStockTitle(e.target.value)}/>
                 <button className="primary-button" disabled={stockBusy||!stockTitle.trim()} onClick={()=>void stockCreate()}>Crear conteo</button>
               </div>
             </div>}
-            <h2>Mis conteos</h2>
+            {stockView==='count' && <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14,marginBottom:20}}>
+              <h2 style={{marginTop:0}}>Iniciar control de stock</h2>
+              <p>Solamente se muestran los conteos publicados. Podés tener uno activo a la vez.</p>
+              <button className="primary-button" disabled={stockBusy||stockCounts.some(c=>c.estado==='EN_CURSO'&&c.asignado_a===profile.userId)} onClick={()=>void stockTakePending()}>Tomar siguiente conteo pendiente</button>
+            </div>}
+            <h2>{stockView==='prepare'?'Conteos para administrar':'Mis conteos publicados'}</h2>
             <div style={{display:'grid',gap:10}}>
-              {stockCounts.length===0 ? <p>No hay conteos disponibles todavía.</p> : stockCounts.map(c=><button key={c.id} className="back-button" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,textAlign:'left',padding:16,borderRadius:12}} onClick={()=>void stockOpen(c.id)}>
+              {stockCounts.filter(c=>stockView==='prepare'||(c.estado!=='BORRADOR'&&c.estado!=='CANCELADO'&&(c.asignado_a===profile.userId||c.estado==='PENDIENTE'))).length===0 ? <p>No hay conteos disponibles todavía.</p> : stockCounts.filter(c=>stockView==='prepare'||(c.estado!=='BORRADOR'&&c.estado!=='CANCELADO'&&(c.asignado_a===profile.userId||c.estado==='PENDIENTE'))).map(c=><button key={c.id} className="back-button" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,textAlign:'left',padding:16,borderRadius:12}} onClick={()=>{if(stockView==='count'&&c.estado==='PENDIENTE'){void stockTakePending();}else void stockOpen(c.id);}}>
                 <span><strong>{c.titulo}</strong><span style={{display:'block',fontSize:13,marginTop:5}}>Depósito {c.deposito} · {c.estado.replaceAll('_',' ').toLowerCase()}</span></span><span aria-hidden="true">›</span>
               </button>)}
             </div>
           </> : <>
-            <button className="back-button" style={{marginBottom:16}} onClick={()=>{setStockSelected(null);void stockRefresh();void stockLoadOptions();}}>← Todos los conteos</button>
+            <button className="back-button" style={{marginBottom:16}} onClick={()=>{setStockSelected(null);void stockRefresh();void stockLoadOptions();}}>← Volver</button>
             <h2 style={{marginTop:0}}>{stockCounts.find(c=>c.id===stockSelected)?.titulo||'Detalle del conteo'}</h2>
             <p>{stockItems.length} artículos seleccionados · {stockMeasurements.length} registros de conteo</p>
-            {profile.rol==='administrador' && <div style={{display:'grid',gap:16}}>
+            {stockView==='prepare' && profile.rol==='administrador' && <div style={{display:'grid',gap:16}}>
               <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
                 <h3 style={{marginTop:0}}>1. Seleccionar artículos</h3>
                 <p>Buscá por descripción, código o EAN y agregá los productos que quieras controlar.</p>
@@ -1501,7 +1509,7 @@ export default function App({ profile, onSignOut }: Props) {
                   </label>;
                 })}</div>}
                 </> : <p>Este conteo ya fue publicado. La selección de artículos está cerrada.</p>}
-                <details style={{marginTop:12}}><summary>Agregar un artículo manualmente</summary><div style={{display:'grid',gap:8,marginTop:10}}><input placeholder="Código Sigma" value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder="Descripción" value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button disabled={stockBusy} onClick={()=>void stockAddItem()}>Agregar artículo</button></div></details>
+                {stockDraft && <details style={{marginTop:12}}><summary>Agregar un artículo manualmente</summary><div style={{display:'grid',gap:8,marginTop:10}}><input placeholder="Código Sigma" value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder="Descripción" value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button disabled={stockBusy} onClick={()=>void stockAddItem()}>Agregar artículo</button></div></details>}
               </div>
               <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
                 <h3 style={{marginTop:0}}>2. Asignar e iniciar</h3>
@@ -1513,8 +1521,8 @@ export default function App({ profile, onSignOut }: Props) {
 
               </div>
             </div>}
-            <div style={{marginTop:20,padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
-              <h3 style={{marginTop:0}}>3. Registrar cantidades por sector</h3>
+            {stockView==='count' && stockCurrent?.estado==='EN_CURSO' && <div style={{marginTop:20,padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
+              <h3 style={{marginTop:0}}>Registrar cantidades por sector</h3>
               {stockCurrent?.estado==='EN_CURSO' && <button disabled={stockBusy||stockMeasurements.length===0} onClick={()=>void stockSendReview()}>Terminé: enviar a revisión</button>}
               <p>Contá físicamente cada ubicación. Podés volver a contar el mismo artículo en otro sector.</p>
               <div style={{display:'grid',gap:10}}>
@@ -1528,7 +1536,7 @@ export default function App({ profile, onSignOut }: Props) {
             </div>
             <div style={{marginTop:20}}>
               <h3>Artículos incluidos ({stockItems.length})</h3>
-              {stockDraft && stockItems.length>0 && <button disabled={stockBusy} onClick={()=>void stockBulkRemove(stockItems.map(i=>i.articulo_codigo))}>Quitar todos los artículos del borrador</button>}
+              {stockView==='prepare' && stockDraft && stockItems.length>0 && <button type="button" className="stock-clear-action" disabled={stockBusy} onClick={()=>{if(window.confirm('¿Quitar todos los artículos de este borrador?'))void stockBulkRemove(stockItems.map(i=>i.articulo_codigo));}}>Quitar todos</button>}
               {stockItems.length===0?<p>Agregá artículos para comenzar.</p>:<div style={{display:'grid',gap:8}}>{stockItems.map(i=><div key={i.id} style={{padding:12,border:'1px solid #e5e7eb',borderRadius:10}}><strong>{i.descripcion}</strong><span style={{display:'block',fontSize:12}}>{i.articulo_codigo}</span>{stockMeasurements.filter(m=>m.item_id===i.id).map(m=><p key={m.id} style={{fontSize:13,margin:'6px 0 0'}}>{m.sector}: {m.cantidad} unidades · {new Date(m.confirmado_at).toLocaleString('es-AR')}</p>)}</div>)}</div>}
             </div>
           </>}
@@ -1689,7 +1697,7 @@ export default function App({ profile, onSignOut }: Props) {
         <aside className="sidebar">
           <div className="sidebar-brand"><DonatoBrand /></div>
           <nav>
-            <button className="nav-item" onClick={() => { setStockMode(true); setDashboardMode('history'); setSelectedJourney(null); setClosure(null); setStockSelected(null); void stockRefresh(); void stockLoadOptions(); }}><ClipboardCheck size={18} /> Control de stock</button>
+            <button className="nav-item" onClick={() => { setStockMode(true); setStockView('home'); setDashboardMode('history'); setSelectedJourney(null); setClosure(null); setStockSelected(null); void stockRefresh(); void stockLoadOptions(); }}><ClipboardCheck size={18} /> Control de stock</button>
             <button className={`nav-item ${dashboardMode === 'today' ? 'active' : ''}`} onClick={() => { setDashboardMode('today'); setSelectedJourney(null); setClosure(null); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
             <button className={`nav-item ${dashboardMode === 'history' ? 'active' : ''}`} onClick={() => { setDashboardMode('history'); setSelectedJourney(null); setClosure(null); void loadHistory(); }}><Clock3 size={18} /> Historial</button>
             <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
