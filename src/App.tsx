@@ -330,10 +330,53 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockCatalog,setStockCatalog] = useState<any[]>([]);
   const [stockSearch,setStockSearch] = useState('');
   const [stockSearched,setStockSearched] = useState(false);
+  const [stockFilters,setStockFilters] = useState({rubro:'',familia:'',linea:'',grupo:''});
+  const [stockFilterOptions,setStockFilterOptions] = useState<{rubros:string[],familias:string[],lineas:string[],grupos:string[]}>({rubros:[],familias:[],lineas:[],grupos:[]});
+  const [stockChecked,setStockChecked] = useState<string[]>([]);
+  const [stockControllers,setStockControllers] = useState<Array<{id:string,nombre:string,email:string}>>([]);
+  const stockCurrent=stockCounts.find(c=>c.id===stockSelected);
+  const stockDraft=stockCurrent?.estado==='BORRADOR';
+  const stockCanSearch=stockSearch.trim().length>=2||Object.values(stockFilters).some(Boolean);
+  async function stockLoadOptions(){
+    if(!supabase||profile.rol!=='administrador')return;
+    const [filters,controllers]=await Promise.all([supabase.rpc('donato_stock_catalogo_filtros'),supabase.rpc('donato_stock_controladores')]);
+    if(!filters.error&&filters.data)setStockFilterOptions(filters.data);
+    if(!controllers.error)setStockControllers(controllers.data||[]);
+  }
+  async function stockBulkAdd(){
+    if(!supabase||!stockSelected||!stockChecked.length)return;
+    setStockBusy(true);setStockError('');
+    const {error}=await supabase.rpc('donato_stock_agregar_articulos',{p_conteo:stockSelected,p_codigos:stockChecked});
+    if(error)setStockError(error.message);else {setStockChecked([]);await stockOpen(stockSelected,false);}
+    setStockBusy(false);
+  }
+  async function stockBulkRemove(codes:string[]){
+    if(!supabase||!stockSelected||!codes.length)return;
+    setStockBusy(true);setStockError('');
+    const {error}=await supabase.rpc('donato_stock_quitar_articulos',{p_conteo:stockSelected,p_codigos:codes});
+    if(error)setStockError(error.message);else {setStockChecked([]);await stockOpen(stockSelected,false);}
+    setStockBusy(false);
+  }
+  async function stockTakePending(){
+    if(!supabase)return;
+    setStockBusy(true);setStockError('');
+    const {data,error}=await supabase.rpc('donato_stock_tomar_pendiente');
+    if(error)setStockError(error.message);
+    else if(data){await stockRefresh();await stockOpen(data);}
+    else setStockError('No hay conteos pendientes disponibles.');
+    setStockBusy(false);
+  }
+  async function stockSendReview(){
+    if(!supabase||!stockSelected)return;
+    setStockBusy(true);setStockError('');
+    const {error}=await supabase.rpc('donato_stock_enviar_revision',{p_conteo:stockSelected});
+    if(error)setStockError(error.message);else {await stockRefresh();setStockSelected(null);}
+    setStockBusy(false);
+  }
   async function stockSearchCatalog(){
-    if(!supabase||stockSearch.trim().length<2)return;
-    setStockError('');setStockBusy(true);setStockSearched(false);setStockCatalog([]);
-    const {data,error}=await supabase.rpc('donato_stock_buscar_articulos',{p_texto:stockSearch.trim(),p_limite:30});
+    if(!supabase||!stockCanSearch)return;
+    setStockError('');setStockBusy(true);setStockSearched(false);setStockCatalog([]);setStockChecked([]);
+    const {data,error}=await supabase.rpc('donato_stock_buscar_articulos',{p_texto:stockSearch.trim(),p_limite:500,p_rubro:stockFilters.rubro||null,p_familia:stockFilters.familia||null,p_linea:stockFilters.linea||null,p_grupo:stockFilters.grupo||null});
     if(error)setStockError('No se pudo consultar el catálogo: '+error.message);else {setStockCatalog(data||[]);setStockSearched(true);}
     setStockBusy(false);
   }
@@ -341,17 +384,19 @@ export default function App({ profile, onSignOut }: Props) {
     if(!supabase||!stockSelected)return;
     setStockBusy(true);setStockError('');
     const {error}=await supabase.rpc('donato_stock_agregar_articulo',{p_conteo:stockSelected,p_codigo:code});
-    if(error)setStockError(error.message);else await stockOpen(stockSelected);
+    if(error)setStockError(error.message);else await stockOpen(stockSelected,false);
     setStockBusy(false);
   }
   async function stockRefresh(){
     if(!supabase)return;
-    const {data,error}=await supabase.from('donato_stock_conteos').select('id,titulo,deposito,estado,creado_at,asignado_a,snapshot_at').order('creado_at',{ascending:false}).limit(100);
+    const {data,error}=profile.rol==='administrador'
+      ? await supabase.from('donato_stock_conteos').select('id,titulo,deposito,estado,creado_at,asignado_a,snapshot_at').order('creado_at',{ascending:false}).limit(100)
+      : await supabase.rpc('donato_stock_mis_conteos');
     if(error)setStockError(error.message);else setStockCounts(data||[]);
   }
-  async function stockOpen(id:string){
+  async function stockOpen(id:string,resetSearch=true){
     if(!supabase)return;
-    setStockSelected(id);setStockError('');setStockCatalog([]);setStockSearch('');setStockSearched(false);
+    setStockSelected(id);setStockError('');if(resetSearch){setStockCatalog([]);setStockSearch('');setStockSearched(false);setStockChecked([]);}
     const {data,error}=profile.rol==='administrador'
       ? await supabase.from('donato_stock_conteo_items').select('*').eq('conteo_id',id)
       : await supabase.rpc('donato_stock_mis_items',{p_conteo:id});
@@ -385,13 +430,11 @@ export default function App({ profile, onSignOut }: Props) {
     if(error)setStockError(error.message);else {setStockArticleCode('');setStockArticleName('');await stockOpen(stockSelected);}
     setStockBusy(false);
   }
-  async function stockAssign(status:'EN_CURSO'|'EN_REVISION'){
+  async function stockAssign(){
     if(!supabase||!stockSelected)return;
     setStockBusy(true);setStockError('');
-    const changes:any={estado:status};
-    if(status==='EN_CURSO'){if(!stockAssignee.trim()){setStockError('Ingresá el UUID del controlador');setStockBusy(false);return;}changes.asignado_a=stockAssignee.trim();}
-    const {error}=await supabase.from('donato_stock_conteos').update(changes).eq('id',stockSelected);
-    if(error)setStockError(error.message);else await stockRefresh();
+    const {error}=await supabase.rpc('donato_stock_publicar',{p_conteo:stockSelected,p_controlador:stockAssignee||null});
+    if(error)setStockError(error.message);else {await stockRefresh();setStockSelected(null);setStockAssignee('');}
     setStockBusy(false);
   }
 
@@ -1385,7 +1428,7 @@ export default function App({ profile, onSignOut }: Props) {
         <aside className="sidebar">
           <div className="sidebar-brand"><DonatoBrand /></div>
           <nav>
-          <button className={stockMode ? 'nav-item active' : 'nav-item'} onClick={() => {setStockMode(true);setStockSelected(null);void stockRefresh();}}><ClipboardCheck size={18}/> Control de stock</button>
+          <button className={stockMode ? 'nav-item active' : 'nav-item'} onClick={() => {setStockMode(true);setStockSelected(null);void stockRefresh();void stockLoadOptions();}}><ClipboardCheck size={18}/> Control de stock</button>
             <button className="nav-item" onClick={() => { setStockMode(false); setDashboardMode('today'); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
             <button className={stockMode ? 'nav-item' : 'nav-item active'} onClick={() => { setStockMode(false); void loadHistory(); }}><Clock3 size={18} /> Historial</button>
             <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
@@ -1410,6 +1453,7 @@ export default function App({ profile, onSignOut }: Props) {
               <div className="metric"><span>En revisión</span><strong>{stockCounts.filter(c=>c.estado==='EN_REVISION').length}</strong></div>
               <div className="metric"><span>Borradores</span><strong>{stockCounts.filter(c=>c.estado==='BORRADOR').length}</strong></div>
             </div>
+            {profile.rol!=='administrador' && <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14,marginBottom:20}}><h2>Tu próximo control</h2><p>Un solo conteo activo por controlador.</p><button className="primary-button" disabled={stockBusy||stockCounts.some(c=>c.estado==='EN_CURSO')} onClick={()=>void stockTakePending()}>Tomar siguiente conteo pendiente</button></div>}
             {profile.rol==='administrador' && <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14,marginBottom:20}}>
               <h2 style={{marginTop:0}}>Nuevo conteo</h2>
               <p>Creá un borrador. Después elegí los artículos y asigná quién los contará.</p>
@@ -1425,37 +1469,53 @@ export default function App({ profile, onSignOut }: Props) {
               </button>)}
             </div>
           </> : <>
-            <button className="back-button" style={{marginBottom:16}} onClick={()=>{setStockSelected(null);void stockRefresh();}}>← Todos los conteos</button>
+            <button className="back-button" style={{marginBottom:16}} onClick={()=>{setStockSelected(null);void stockRefresh();void stockLoadOptions();}}>← Todos los conteos</button>
             <h2 style={{marginTop:0}}>{stockCounts.find(c=>c.id===stockSelected)?.titulo||'Detalle del conteo'}</h2>
             <p>{stockItems.length} artículos seleccionados · {stockMeasurements.length} registros de conteo</p>
             {profile.rol==='administrador' && <div style={{display:'grid',gap:16}}>
               <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
                 <h3 style={{marginTop:0}}>1. Seleccionar artículos</h3>
                 <p>Buscá por descripción, código o EAN y agregá los productos que quieras controlar.</p>
-                <div className="stock-search-bar">
-                  <input aria-label="Buscar artículos" placeholder="Ej.: Dove, lavandina o código EAN" value={stockSearch} onChange={e=>{setStockSearch(e.target.value);setStockSearched(false);setStockCatalog([]);}} onKeyDown={e=>{if(e.key==='Enter')void stockSearchCatalog();}}/>
-                  <button className="primary-button" disabled={stockBusy||stockSearch.trim().length<2} onClick={()=>void stockSearchCatalog()}>{stockBusy?'Buscando…':'Buscar artículos'}</button>
+                {stockDraft ? <>
+                <div className="stock-filter-grid">
+                  {([['rubro','Rubro','rubros'],['familia','Familia','familias'],['linea','Línea','lineas'],['grupo','Grupo','grupos']] as const).map(([key,label,options])=><label key={key}>{label}<select value={stockFilters[key]} onChange={e=>setStockFilters(current=>({...current,[key]:e.target.value}))}><option value="">Todos</option>{stockFilterOptions[options].map(value=><option key={value} value={value}>{value}</option>)}</select></label>)}
                 </div>
-                <p className="stock-helper">Escribí al menos 2 caracteres y tocá Buscar artículos para ver el listado de Sigma.</p>
-                {stockSearched && <p className="stock-results-heading">{stockCatalog.length ? stockCatalog.length+' resultados. Tocá Agregar en el producto que quieras contar.' : 'No se encontraron artículos. Probá otra descripción o código.'}</p>}
+                {Object.values(stockFilterOptions).every(v=>v.length===0) && <p className="stock-helper">Los filtros por clasificación se habilitarán al sincronizar rubro, familia, línea y grupo desde Sigma.</p>}
+                <div className="stock-search-bar">
+                  <input aria-label="Buscar artículos" placeholder="Descripción, código o EAN (ej.: dove 400)" value={stockSearch} onChange={e=>{setStockSearch(e.target.value);setStockSearched(false);setStockCatalog([]);setStockChecked([]);}} onKeyDown={e=>{if(e.key==='Enter')void stockSearchCatalog();}}/>
+                  <button className="primary-button" disabled={stockBusy||!stockCanSearch} onClick={()=>void stockSearchCatalog()}>{stockBusy?'Buscando…':'Buscar artículos'}</button>
+                </div>
+                <p className="stock-helper">Buscá por varias palabras y/o filtrá por clasificación. Marcá artículos individuales o todos los resultados.</p>
+                {stockSearched && <p className="stock-results-heading">{stockCatalog.length ? stockCatalog.length+' resultados (máximo 500)' : 'No se encontraron artículos. Probá otra descripción o código.'}</p>}
+                {stockCatalog.length>0 && <div className="stock-bulk-actions">
+                  <label><input type="checkbox" checked={stockCatalog.every(a=>stockChecked.includes(a.articulo_codigo))} onChange={e=>setStockChecked(e.target.checked?stockCatalog.map(a=>a.articulo_codigo):[])}/> Seleccionar todos ({stockCatalog.length})</label>
+                  <button type="button" onClick={()=>setStockChecked([])} disabled={!stockChecked.length}>Borrar selección</button>
+                  <button className="primary-button" disabled={stockBusy||!stockChecked.length} onClick={()=>void stockBulkAdd()}>Agregar seleccionados ({stockChecked.length})</button>
+                </div>}
                 {stockCatalog.length>0 && <div className="stock-results-list">{stockCatalog.map(a=>{
                   const added=stockItems.some(i=>i.articulo_codigo===a.articulo_codigo);
-                  return <div key={a.articulo_codigo} className="stock-result">
-                    <div className="stock-result-info"><strong>{a.articulo_nombre}</strong><small>Código {a.articulo_codigo}{a.ean_unidad?' · EAN '+a.ean_unidad:''}</small></div>
-                    <button type="button" className={added?'stock-added':'stock-add-button'} disabled={stockBusy||added} onClick={()=>void stockAddFromCatalog(a.articulo_codigo)}>{added?'✓ Agregado':'+ Agregar'}</button>
-                  </div>;
+                  return <label key={a.articulo_codigo} className="stock-result stock-select-row">
+                    <input type="checkbox" checked={stockChecked.includes(a.articulo_codigo)} onChange={e=>setStockChecked(current=>e.target.checked?[...current,a.articulo_codigo]:current.filter(code=>code!==a.articulo_codigo))}/>
+                    <span className="stock-result-info"><strong>{a.articulo_nombre}</strong><small>Código {a.articulo_codigo}{a.ean_unidad?' · EAN '+a.ean_unidad:''}</small></span>
+                    {added && <span className="stock-added">✓ Incluido</span>}
+                  </label>;
                 })}</div>}
+                </> : <p>Este conteo ya fue publicado. La selección de artículos está cerrada.</p>}
                 <details style={{marginTop:12}}><summary>Agregar un artículo manualmente</summary><div style={{display:'grid',gap:8,marginTop:10}}><input placeholder="Código Sigma" value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder="Descripción" value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button disabled={stockBusy} onClick={()=>void stockAddItem()}>Agregar artículo</button></div></details>
               </div>
               <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
                 <h3 style={{marginTop:0}}>2. Asignar e iniciar</h3>
                 <p>El controlador verá los artículos, pero no el stock registrado en Sigma.</p>
-                <label style={{display:'grid',gap:6}}>Identificador del controlador<input placeholder="UUID del usuario (provisorio)" value={stockAssignee} onChange={e=>setStockAssignee(e.target.value)}/></label>
-                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}}><button className="primary-button" disabled={stockBusy||!stockAssignee.trim()||stockItems.length===0} onClick={()=>void stockAssign('EN_CURSO')}>Asignar e iniciar conteo</button><button disabled={stockBusy} onClick={()=>void stockAssign('EN_REVISION')}>Enviar a revisión</button></div>
+                {stockDraft ? <>
+                  <label style={{display:'grid',gap:6}}>Asignación<select value={stockAssignee} onChange={e=>setStockAssignee(e.target.value)}><option value="">Cola de pendientes (sin asignar)</option>{stockControllers.map(u=><option key={u.id} value={u.id}>{u.nombre} · {u.email}</option>)}</select></label>
+                  <button className="primary-button" style={{marginTop:12}} disabled={stockBusy||stockItems.length===0} onClick={()=>void stockAssign()}>{stockAssignee?'Asignar e iniciar':'Publicar en cola de pendientes'}</button>
+                </> : <p>Estado: {stockCurrent?.estado}. {stockCurrent?.asignado_a?'Controlador asignado.':'Sin controlador asignado.'}</p>}
+
               </div>
             </div>}
             <div style={{marginTop:20,padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
               <h3 style={{marginTop:0}}>3. Registrar cantidades por sector</h3>
+              {stockCurrent?.estado==='EN_CURSO' && <button disabled={stockBusy||stockMeasurements.length===0} onClick={()=>void stockSendReview()}>Terminé: enviar a revisión</button>}
               <p>Contá físicamente cada ubicación. Podés volver a contar el mismo artículo en otro sector.</p>
               <div style={{display:'grid',gap:10}}>
                 <input placeholder="Escanear EAN o ingresar código" value={stockCode} onChange={e=>setStockCode(e.target.value)}/>
@@ -1463,11 +1523,12 @@ export default function App({ profile, onSignOut }: Props) {
                   <label style={{display:'grid',gap:6}}>Sector<select value={stockSector} onChange={e=>setStockSector(e.target.value)}>{[['ALMACEN','Almacén'],['GONDOLA','Góndola'],['CAMARA','Cámara'],['PUNTERA','Puntera'],['EXHIBICION','Exhibición'],['OTRO','Otro']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
                   <label style={{display:'grid',gap:6}}>Cantidad<input type="number" min="0" step="0.001" placeholder="Unidades" value={stockQty} onChange={e=>setStockQty(e.target.value)}/></label>
                 </div>
-                <button className="primary-button" disabled={stockBusy||!stockCode.trim()||stockQty===''} onClick={()=>void stockRegister()}>Confirmar cantidad contada</button>
+                <button className="primary-button" disabled={stockBusy||stockCurrent?.estado!=='EN_CURSO'||!stockCode.trim()||stockQty===''} onClick={()=>void stockRegister()}>Confirmar cantidad contada</button>
               </div>
             </div>
             <div style={{marginTop:20}}>
               <h3>Artículos incluidos ({stockItems.length})</h3>
+              {stockDraft && stockItems.length>0 && <button disabled={stockBusy} onClick={()=>void stockBulkRemove(stockItems.map(i=>i.articulo_codigo))}>Quitar todos los artículos del borrador</button>}
               {stockItems.length===0?<p>Agregá artículos para comenzar.</p>:<div style={{display:'grid',gap:8}}>{stockItems.map(i=><div key={i.id} style={{padding:12,border:'1px solid #e5e7eb',borderRadius:10}}><strong>{i.descripcion}</strong><span style={{display:'block',fontSize:12}}>{i.articulo_codigo}</span>{stockMeasurements.filter(m=>m.item_id===i.id).map(m=><p key={m.id} style={{fontSize:13,margin:'6px 0 0'}}>{m.sector}: {m.cantidad} unidades · {new Date(m.confirmado_at).toLocaleString('es-AR')}</p>)}</div>)}</div>}
             </div>
           </>}
@@ -1628,7 +1689,7 @@ export default function App({ profile, onSignOut }: Props) {
         <aside className="sidebar">
           <div className="sidebar-brand"><DonatoBrand /></div>
           <nav>
-            <button className="nav-item" onClick={() => { setStockMode(true); setDashboardMode('history'); setSelectedJourney(null); setClosure(null); setStockSelected(null); void stockRefresh(); }}><ClipboardCheck size={18} /> Control de stock</button>
+            <button className="nav-item" onClick={() => { setStockMode(true); setDashboardMode('history'); setSelectedJourney(null); setClosure(null); setStockSelected(null); void stockRefresh(); void stockLoadOptions(); }}><ClipboardCheck size={18} /> Control de stock</button>
             <button className={`nav-item ${dashboardMode === 'today' ? 'active' : ''}`} onClick={() => { setDashboardMode('today'); setSelectedJourney(null); setClosure(null); void loadDashboard(); }}><ClipboardCheck size={18} /> Cierre de caja</button>
             <button className={`nav-item ${dashboardMode === 'history' ? 'active' : ''}`} onClick={() => { setDashboardMode('history'); setSelectedJourney(null); setClosure(null); void loadHistory(); }}><Clock3 size={18} /> Historial</button>
             <button className="nav-item" disabled><ArrowRightLeft size={18} /> Ajustes</button>
