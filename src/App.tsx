@@ -1478,9 +1478,9 @@ export default function App({ profile, onSignOut }: Props) {
                 <p>Buscá por descripción, código o EAN y agregá los productos que quieras controlar.</p>
                 {stockDraft ? <>
                 <div className="stock-filter-grid">
-                  {([['rubro','Rubro','rubros'],['familia','Familia','familias'],['linea','Línea','lineas'],['grupo','Grupo','grupos']] as const).map(([key,label,options])=><label key={key}>{label}<select value={stockFilters[key]} onChange={e=>setStockFilters(current=>({...current,[key]:e.target.value}))}><option value="">Todos</option>{stockFilterOptions[options].map(value=><option key={value} value={value}>{value}</option>)}</select></label>)}
+                  {([['rubro','Rubro','rubros'],['familia','Familia','familias'],['linea','Línea','lineas'],['grupo','Grupo','grupos']] as const).map(([key,label,options])=><label key={key}>{label}<select disabled={stockFilterOptions[options].length===0} value={stockFilters[key]} onChange={e=>setStockFilters(current=>({...current,[key]:e.target.value}))}><option value="">Todos</option>{stockFilterOptions[options].map(value=><option key={value} value={value}>{value}</option>)}</select></label>)}
                 </div>
-                {Object.values(stockFilterOptions).every(v=>v.length===0) && <p className="stock-helper">Los filtros por clasificación se habilitarán al sincronizar rubro, familia, línea y grupo desde Sigma.</p>}
+                {stockFilterOptions.familias.length===0 && <p className="stock-helper">Rubro, línea y grupo se obtienen de Sigma. Familia todavía no está disponible en la fuente sincronizada.</p>}
                 <div className="stock-search-bar">
                   <input aria-label="Buscar artículos" placeholder="Descripción, código o EAN (ej.: dove 400)" value={stockSearch} onChange={e=>{setStockSearch(e.target.value);setStockSearched(false);setStockCatalog([]);setStockChecked([]);}} onKeyDown={e=>{if(e.key==='Enter')void stockSearchCatalog();}}/>
                   <button className="primary-button" disabled={stockBusy||!stockCanSearch} onClick={()=>void stockSearchCatalog()}>{stockBusy?'Buscando…':'Buscar artículos'}</button>
