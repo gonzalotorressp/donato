@@ -1396,29 +1396,74 @@ export default function App({ profile, onSignOut }: Props) {
         </aside>
 
         <main className="workspace">
-        {stockMode ? <section className="panel" style={{padding:24}}>
-          <button className="back-button" onClick={()=>setStockMode(false)}>Volver a cierre de caja</button>
-          <h1>Control de stock Donato</h1>
-          <p>Conteos ciegos · Depósito 03 · Los ajustes de Sigma requieren conciliación y aprobación.</p>
-          {stockError && <p role="alert" style={{color:'#b42318'}}>{stockError}</p>}
-          {profile.rol==='administrador' && <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:20}}>
-            <input placeholder="Nombre del conteo" value={stockTitle} onChange={e=>setStockTitle(e.target.value)}/>
-            <button className="primary-button" disabled={stockBusy} onClick={()=>void stockCreate()}>Crear borrador</button>
-          </div>}
-          <div style={{display:'grid',gap:8}}>
-            {stockCounts.map(c=><button key={c.id} className="back-button" onClick={()=>void stockOpen(c.id)}>{c.titulo} · {c.estado} · Dep. {c.deposito}{c.snapshot_at?' · Snapshot registrado':' · Sin snapshot'}</button>)}
+        {stockMode ? <section className="panel" style={{padding:'clamp(16px, 4vw, 28px)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:16}}>
+            <div><p className="eyebrow">DEPÓSITO 03 · DONATO</p><h1 style={{margin:'4px 0'}}>Control de stock</h1><p style={{margin:0}}>Conteos ciegos por artículo y sector</p></div>
+            <button className="back-button" onClick={()=>{setStockMode(false);setDashboardMode('today');void loadDashboard();}}>Volver a cajas</button>
           </div>
-          {stockSelected && <div style={{marginTop:20}}>{profile.rol==='administrador' && <div><div style={{display:'grid',gap:8,marginBottom:12}}><h3>Buscar en catálogo Sigma sincronizado</h3><input placeholder="Código, EAN o descripción" value={stockSearch} onChange={e=>setStockSearch(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void stockSearchCatalog();}}/><button disabled={stockBusy} onClick={()=>void stockSearchCatalog()}>Buscar artículos</button>{stockCatalog.map(a=><div key={a.articulo_codigo} style={{display:'flex',gap:8,alignItems:'center'}}><span>{a.articulo_codigo} · {a.articulo_nombre} · EAN {a.ean_unidad||'—'}</span><button disabled={stockBusy} onClick={()=>void stockAddFromCatalog(a.articulo_codigo)}>Agregar</button></div>)}</div><input placeholder='Código Sigma' value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder='Descripción' value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button onClick={()=>void stockAddItem()}>Agregar artículo</button><input placeholder='UUID controlador' value={stockAssignee} onChange={e=>setStockAssignee(e.target.value)}/><button onClick={()=>void stockAssign('EN_CURSO')}>Asignar e iniciar</button><button onClick={()=>void stockAssign('EN_REVISION')}>Enviar a revisión</button></div>}
-            <h2>Artículos del conteo</h2>
-            <p>{stockItems.length} artículos · El controlador nunca ve existencias Sigma.</p>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              <input placeholder="EAN o código" value={stockCode} onChange={e=>setStockCode(e.target.value)}/>
-              <input type="number" min="0" step="0.001" placeholder="Cantidad contada" value={stockQty} onChange={e=>setStockQty(e.target.value)}/>
-              <select value={stockSector} onChange={e=>setStockSector(e.target.value)}>{[['ALMACEN','Almacén'],['GONDOLA','Góndola'],['CAMARA','Cámara'],['PUNTERA','Puntera'],['EXHIBICION','Exhibición'],['OTRO','Otro']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>
-              <button className="primary-button" disabled={stockBusy} onClick={()=>void stockRegister()}>Confirmar sector</button>
+          {stockError && <div className="info-box" role="alert" style={{marginBottom:16,color:'#b42318'}}>{stockError}</div>}
+          {!stockSelected ? <>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:12,marginBottom:24}}>
+              <div className="metric"><span>En curso</span><strong>{stockCounts.filter(c=>c.estado==='EN_CURSO').length}</strong></div>
+              <div className="metric"><span>En revisión</span><strong>{stockCounts.filter(c=>c.estado==='EN_REVISION').length}</strong></div>
+              <div className="metric"><span>Borradores</span><strong>{stockCounts.filter(c=>c.estado==='BORRADOR').length}</strong></div>
             </div>
-            {stockItems.map(i=><div key={i.id}><strong>{i.articulo_codigo} · {i.descripcion}</strong>{stockMeasurements.filter(m=>m.item_id===i.id).map(m=><p key={m.id}>{m.sector}: {m.cantidad} u. · {new Date(m.confirmado_at).toLocaleString('es-AR')}</p>)}</div>)}
-          </div>}
+            {profile.rol==='administrador' && <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14,marginBottom:20}}>
+              <h2 style={{marginTop:0}}>Nuevo conteo</h2>
+              <p>Creá un borrador. Después elegí los artículos y asigná quién los contará.</p>
+              <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                <input aria-label="Nombre del conteo" style={{flex:'1 1 220px',minWidth:0}} placeholder="Ej.: Góndolas perfumería" value={stockTitle} onChange={e=>setStockTitle(e.target.value)}/>
+                <button className="primary-button" disabled={stockBusy||!stockTitle.trim()} onClick={()=>void stockCreate()}>Crear conteo</button>
+              </div>
+            </div>}
+            <h2>Mis conteos</h2>
+            <div style={{display:'grid',gap:10}}>
+              {stockCounts.length===0 ? <p>No hay conteos disponibles todavía.</p> : stockCounts.map(c=><button key={c.id} className="back-button" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,textAlign:'left',padding:16,borderRadius:12}} onClick={()=>void stockOpen(c.id)}>
+                <span><strong>{c.titulo}</strong><span style={{display:'block',fontSize:13,marginTop:5}}>Depósito {c.deposito} · {c.estado.replaceAll('_',' ').toLowerCase()}</span></span><span aria-hidden="true">›</span>
+              </button>)}
+            </div>
+          </> : <>
+            <button className="back-button" style={{marginBottom:16}} onClick={()=>{setStockSelected(null);void stockRefresh();}}>← Todos los conteos</button>
+            <h2 style={{marginTop:0}}>{stockCounts.find(c=>c.id===stockSelected)?.titulo||'Detalle del conteo'}</h2>
+            <p>{stockItems.length} artículos seleccionados · {stockMeasurements.length} registros de conteo</p>
+            {profile.rol==='administrador' && <div style={{display:'grid',gap:16}}>
+              <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
+                <h3 style={{marginTop:0}}>1. Seleccionar artículos</h3>
+                <p>Buscá por descripción, código o EAN y agregá los productos que quieras controlar.</p>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <input style={{flex:'1 1 220px',minWidth:0}} placeholder="Buscar producto..." value={stockSearch} onChange={e=>setStockSearch(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void stockSearchCatalog();}}/>
+                  <button className="primary-button" disabled={stockBusy||stockSearch.trim().length<2} onClick={()=>void stockSearchCatalog()}>Buscar</button>
+                </div>
+                <div style={{display:'grid',gap:8,marginTop:12}}>{stockCatalog.map(a=><div key={a.articulo_codigo} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'10px 0',borderBottom:'1px solid #e5e7eb'}}>
+                  <span style={{minWidth:0,overflowWrap:'anywhere'}}><strong>{a.articulo_nombre}</strong><span style={{display:'block',fontSize:12}}>{a.articulo_codigo}{a.ean_unidad?' · EAN '+a.ean_unidad:''}</span></span>
+                  <button disabled={stockBusy||stockItems.some(i=>i.articulo_codigo===a.articulo_codigo)} onClick={()=>void stockAddFromCatalog(a.articulo_codigo)}>{stockItems.some(i=>i.articulo_codigo===a.articulo_codigo)?'Agregado':'+ Agregar'}</button>
+                </div>)}</div>
+                <details style={{marginTop:12}}><summary>Agregar un artículo manualmente</summary><div style={{display:'grid',gap:8,marginTop:10}}><input placeholder="Código Sigma" value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder="Descripción" value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button disabled={stockBusy} onClick={()=>void stockAddItem()}>Agregar artículo</button></div></details>
+              </div>
+              <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
+                <h3 style={{marginTop:0}}>2. Asignar e iniciar</h3>
+                <p>El controlador verá los artículos, pero no el stock registrado en Sigma.</p>
+                <label style={{display:'grid',gap:6}}>Identificador del controlador<input placeholder="UUID del usuario (provisorio)" value={stockAssignee} onChange={e=>setStockAssignee(e.target.value)}/></label>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}}><button className="primary-button" disabled={stockBusy||!stockAssignee.trim()||stockItems.length===0} onClick={()=>void stockAssign('EN_CURSO')}>Asignar e iniciar conteo</button><button disabled={stockBusy} onClick={()=>void stockAssign('EN_REVISION')}>Enviar a revisión</button></div>
+              </div>
+            </div>}
+            <div style={{marginTop:20,padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
+              <h3 style={{marginTop:0}}>3. Registrar cantidades por sector</h3>
+              <p>Contá físicamente cada ubicación. Podés volver a contar el mismo artículo en otro sector.</p>
+              <div style={{display:'grid',gap:10}}>
+                <input placeholder="Escanear EAN o ingresar código" value={stockCode} onChange={e=>setStockCode(e.target.value)}/>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10}}>
+                  <label style={{display:'grid',gap:6}}>Sector<select value={stockSector} onChange={e=>setStockSector(e.target.value)}>{[['ALMACEN','Almacén'],['GONDOLA','Góndola'],['CAMARA','Cámara'],['PUNTERA','Puntera'],['EXHIBICION','Exhibición'],['OTRO','Otro']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+                  <label style={{display:'grid',gap:6}}>Cantidad<input type="number" min="0" step="0.001" placeholder="Unidades" value={stockQty} onChange={e=>setStockQty(e.target.value)}/></label>
+                </div>
+                <button className="primary-button" disabled={stockBusy||!stockCode.trim()||stockQty===''} onClick={()=>void stockRegister()}>Confirmar cantidad contada</button>
+              </div>
+            </div>
+            <div style={{marginTop:20}}>
+              <h3>Artículos incluidos ({stockItems.length})</h3>
+              {stockItems.length===0?<p>Agregá artículos para comenzar.</p>:<div style={{display:'grid',gap:8}}>{stockItems.map(i=><div key={i.id} style={{padding:12,border:'1px solid #e5e7eb',borderRadius:10}}><strong>{i.descripcion}</strong><span style={{display:'block',fontSize:12}}>{i.articulo_codigo}</span>{stockMeasurements.filter(m=>m.item_id===i.id).map(m=><p key={m.id} style={{fontSize:13,margin:'6px 0 0'}}>{m.sector}: {m.cantidad} unidades · {new Date(m.confirmado_at).toLocaleString('es-AR')}</p>)}</div>)}</div>}
+            </div>
+          </>}
         </section> : null}
         <div style={{display:stockMode?'none':undefined}}>
           <header className="topbar">
