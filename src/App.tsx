@@ -320,6 +320,23 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockTitle,setStockTitle] = useState('');
   const [stockError,setStockError] = useState('');
   const [stockBusy,setStockBusy] = useState(false);
+  const [stockSigmaTest,setStockSigmaTest] = useState<{stockFisico:number,deposito:string,capturadoAt:string}|null>(null);
+  const [stockSigmaTesting,setStockSigmaTesting] = useState(false);
+  async function stockTestSigma(){
+    if(!supabase)return;
+    setStockSigmaTesting(true);setStockError('');setStockSigmaTest(null);
+    try{
+      const {data:{session}}=await supabase.auth.getSession();
+      if(!session?.access_token)throw new Error('Iniciá sesión nuevamente para consultar Sigma.');
+      const response=await fetch('/api/sigma/stock?codigo=2041&deposito=03',{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error+(result.statusSigma?' (HTTP Sigma '+result.statusSigma+')':''));
+      if(!Number.isFinite(result.stockFisico))throw new Error('La respuesta no contiene stock físico válido.');
+      setStockSigmaTest(result);
+    }catch(error){setStockError('Prueba de conexión Sigma: '+(error instanceof Error?error.message:String(error)));}
+    finally{setStockSigmaTesting(false);}
+  }
+
   const [stockSelected,setStockSelected] = useState<string | null>(null);
   const [stockItems,setStockItems] = useState<any[]>([]);
   const [stockCode,setStockCode] = useState('');
@@ -1604,6 +1621,10 @@ export default function App({ profile, onSignOut }: Props) {
             </div>}
             {stockView==='prepare' && profile.rol==='administrador' && stockCurrent?.estado==='EN_REVISION' && <div className="stock-review-panel">
               <h3>Revisión de diferencias</h3>
+              <div className="stock-sigma-test">
+                <button type="button" disabled={stockSigmaTesting} onClick={()=>void stockTestSigma()}>{stockSigmaTesting?'Consultando Sigma…':'Probar conexión Sigma · artículo 154'}</button>
+                {stockSigmaTest && <p><strong>Conexión correcta:</strong> {stockSigmaTest.stockFisico.toLocaleString('es-AR')} unidades en depósito {stockSigmaTest.deposito}. Consulta: {new Date(stockSigmaTest.capturadoAt).toLocaleString('es-AR')}. <strong>Solo prueba, no modifica la foto.</strong></p>}
+              </div>
               {!stockCurrent?.snapshot_at && <p className="stock-review-warning">Todavía no hay foto del stock de Sigma para este conteo. Las diferencias no se pueden calcular correctamente hasta capturar y validar una referencia temporal.</p>}
               <div className="stock-review-table"><table><thead><tr><th>Artículo</th><th>Stock Sigma</th><th>Contado</th><th>Diferencia</th></tr></thead><tbody>
                 {stockReviewRows.map(row=><tr key={row.articulo_codigo}><td>{row.descripcion}<small>{row.articulo_codigo}</small></td><td>{row.stock_sigma==null?'Sin foto':Number(row.stock_sigma).toLocaleString('es-AR')}</td><td>{Number(row.cantidad_contada).toLocaleString('es-AR')}</td><td>{row.diferencia==null?'—':Number(row.diferencia).toLocaleString('es-AR')}</td></tr>)}
