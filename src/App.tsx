@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -324,6 +324,63 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockItems,setStockItems] = useState<any[]>([]);
   const [stockCode,setStockCode] = useState('');
   const [stockQty,setStockQty] = useState('');
+  const [stockBoxes,setStockBoxes] = useState('');
+  const [stockPackInfo,setStockPackInfo] = useState<any[]>([]);
+  const [stockScanning,setStockScanning] = useState(false);
+  const stockVideoRef=useRef<HTMLVideoElement|null>(null);
+  const stockStreamRef=useRef<MediaStream|null>(null);
+  const stockScanFrameRef=useRef<number|null>(null);
+  const stockScanActiveRef=useRef(false);
+  const stockMatch=stockItems.find(x=>{
+    const code=stockCode.trim();
+    const pack=stockPackInfo.find(p=>p.articulo_codigo===x.articulo_codigo);
+    return code!==''&&(x.articulo_codigo===code||x.ean===code||pack?.ean_unidad===code||pack?.ean_bulto===code);
+  });
+  const stockMatchPack=stockPackInfo.find(p=>p.articulo_codigo===stockMatch?.articulo_codigo);
+  const stockPackSize=Number(stockMatchPack?.unidades_por_bulto)||0;
+  const stockCalculated=(Number(stockBoxes||0)*stockPackSize)+Number(stockQty||0);
+  function stockStopScan(){
+    stockScanActiveRef.current=false;
+    if(stockScanFrameRef.current!==null)cancelAnimationFrame(stockScanFrameRef.current);
+    stockScanFrameRef.current=null;
+    stockStreamRef.current?.getTracks().forEach(track=>track.stop());
+    stockStreamRef.current=null;
+    if(stockVideoRef.current)stockVideoRef.current.srcObject=null;
+    setStockScanning(false);
+  }
+  async function stockStartScan(){
+    const Detector=(window as any).BarcodeDetector;
+    if(!Detector){setStockError('Este navegador no admite escaneo de códigos de barras. Podés ingresar el código manualmente.');return;}
+    if(!navigator.mediaDevices?.getUserMedia){setStockError('No se puede acceder a la cámara desde este dispositivo o conexión.');return;}
+    setStockError('');
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+      stockStreamRef.current=stream;
+      stockScanActiveRef.current=true;
+      setStockScanning(true);
+      const detector=new Detector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']});
+      const scan=async()=>{
+        if(!stockScanActiveRef.current)return;
+        const video=stockVideoRef.current;
+        if(video&&video.readyState>=2){
+          try{
+            const codes=await detector.detect(video);
+            if(codes.length&&codes[0].rawValue){setStockCode(codes[0].rawValue);stockStopScan();return;}
+          }catch{/* continue scanning */}
+        }
+        if(stockScanActiveRef.current)stockScanFrameRef.current=requestAnimationFrame(scan);
+      };
+      requestAnimationFrame(async()=>{
+        const video=stockVideoRef.current;
+        if(!video){stockStopScan();return;}
+        video.srcObject=stream;
+        try{await video.play();stockScanFrameRef.current=requestAnimationFrame(scan);}
+        catch{stockStopScan();setStockError('No se pudo iniciar la vista de la cámara.');}
+      });
+    }catch{stockStopScan();setStockError('No se pudo abrir la cámara. Revisá los permisos del navegador.');}
+  }
+  useEffect(()=>()=>{stockScanActiveRef.current=false;if(stockScanFrameRef.current!==null)cancelAnimationFrame(stockScanFrameRef.current);stockStreamRef.current?.getTracks().forEach(track=>track.stop());},[]);
+
   const [stockSector,setStockSector] = useState('ALMACEN');
   const [stockMeasurements,setStockMeasurements] = useState<any[]>([]);
   const [stockAssignee,setStockAssignee] = useState('');
@@ -410,6 +467,8 @@ export default function App({ profile, onSignOut }: Props) {
       ? await supabase.from('donato_stock_mediciones').select('*').in('item_id',(data||[]).length?(data||[]).map((x:any)=>x.id):['00000000-0000-0000-0000-000000000000'])
       : await supabase.rpc('donato_stock_mis_mediciones',{p_conteo:id});
     if(measurements.error)setStockError(measurements.error.message);else setStockMeasurements(measurements.data||[]);
+    const packs=await supabase.rpc('donato_stock_presentaciones',{p_conteo:id});
+    if(!packs.error)setStockPackInfo(packs.data||[]);
   }
   async function stockCreate(){
     if(!supabase||profile.rol!=='administrador'||!stockTitle.trim())return;
@@ -419,13 +478,13 @@ export default function App({ profile, onSignOut }: Props) {
     setStockBusy(false);
   }
   async function stockRegister(){
-    if(!supabase||!stockSelected||!stockCode.trim()||stockQty==='')return;
-    const item=stockItems.find(x=>x.articulo_codigo===stockCode.trim()||x.ean===stockCode.trim());
-    if(!item){setStockError('Artículo no incluido en este conteo');return;}
-    if(!Number.isFinite(Number(stockQty))||Number(stockQty)<0){setStockError('Cantidad inválida');return;}
+    if(!supabase||!stockSelected||!stockMatch||(!stockBoxes&&!stockQty))return;
+    const boxes=Number(stockBoxes||0),loose=Number(stockQty||0);
+    if(!Number.isInteger(boxes)||boxes<0||!Number.isFinite(loose)||loose<0||!Number.isFinite(stockCalculated)||stockCalculated<0){setStockError('Ingresá cantidades válidas y bultos enteros.');return;}
+    if(boxes>0&&(!stockPackSize||stockPackSize<=0)){setStockError('Este artículo no tiene unidades por bulto configuradas en Sigma. Registrá las unidades sueltas o corregí su presentación.');return;}
     setStockBusy(true);setStockError('');
-    const {error}=await supabase.rpc('donato_stock_registrar_sector',{p_item:item.id,p_sector:stockSector,p_cantidad:Number(stockQty),p_metodo:item.ean===stockCode.trim()?'EAN':'MANUAL'});
-    if(error)setStockError(error.message);else {setStockCode('');setStockQty('');await stockOpen(stockSelected);}
+    const {error}=await supabase.rpc('donato_stock_registrar_sector',{p_item:stockMatch.id,p_sector:stockSector,p_cantidad:stockCalculated,p_metodo:stockCode.trim()===stockMatchPack?.ean_bulto||stockCode.trim()===stockMatchPack?.ean_unidad?'EAN':'MANUAL'});
+    if(error)setStockError(error.message);else {setStockCode('');setStockQty('');setStockBoxes('');await stockOpen(stockSelected);}
     setStockBusy(false);
   }
   async function stockAddItem(){
@@ -1526,12 +1585,16 @@ export default function App({ profile, onSignOut }: Props) {
               {stockCurrent?.estado==='EN_CURSO' && <button disabled={stockBusy||stockMeasurements.length===0} onClick={()=>void stockSendReview()}>Terminé: enviar a revisión</button>}
               <p>Contá físicamente cada ubicación. Podés volver a contar el mismo artículo en otro sector.</p>
               <div style={{display:'grid',gap:10}}>
-                <input placeholder="Escanear EAN o ingresar código" value={stockCode} onChange={e=>setStockCode(e.target.value)}/>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10}}>
-                  <label style={{display:'grid',gap:6}}>Sector<select value={stockSector} onChange={e=>setStockSector(e.target.value)}>{[['ALMACEN','Almacén'],['GONDOLA','Góndola'],['CAMARA','Cámara'],['PUNTERA','Puntera'],['EXHIBICION','Exhibición'],['OTRO','Otro']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
-                  <label style={{display:'grid',gap:6}}>Cantidad<input type="number" min="0" step="0.001" placeholder="Unidades" value={stockQty} onChange={e=>setStockQty(e.target.value)}/></label>
+                <div className="stock-code-entry"><input placeholder="Escanear EAN o ingresar código" value={stockCode} onChange={e=>setStockCode(e.target.value)}/><button type="button" onClick={()=>stockScanning?stockStopScan():void stockStartScan()}>{stockScanning?'Cerrar cámara':'📷 Escanear'}</button></div>
+                {stockScanning && <div className="stock-camera"><video ref={stockVideoRef} autoPlay muted playsInline aria-label="Cámara para escanear código de barras"/><p>Enfocá el código de barras del artículo.</p></div>}
+                {stockMatch && <p className="stock-helper"><strong>{stockMatch.descripcion}</strong>{stockPackSize>0?' · '+stockPackSize+' unidades por bulto':' · Sin presentación por bulto configurada'}</p>}
+                <label style={{display:'grid',gap:6}}>Sector<select value={stockSector} onChange={e=>setStockSector(e.target.value)}>{[['ALMACEN','Almacén'],['GONDOLA','Góndola'],['CAMARA','Cámara'],['PUNTERA','Puntera'],['EXHIBICION','Exhibición'],['OTRO','Otro']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+                <div className="stock-quantity-grid">
+                  <label style={{display:'grid',gap:6}}>Bultos cerrados<input type="number" min="0" step="1" inputMode="numeric" placeholder="0" value={stockBoxes} onChange={e=>setStockBoxes(e.target.value)}/></label>
+                  <label style={{display:'grid',gap:6}}>Unidades sueltas<input type="number" min="0" step="1" inputMode="numeric" placeholder="0" value={stockQty} onChange={e=>setStockQty(e.target.value)}/></label>
                 </div>
-                <button className="primary-button" disabled={stockBusy||stockCurrent?.estado!=='EN_CURSO'||!stockCode.trim()||stockQty===''} onClick={()=>void stockRegister()}>Confirmar cantidad contada</button>
+                <p className="stock-total-preview">Total a registrar: <strong>{stockMatch&&Number.isFinite(stockCalculated)&&(!Number(stockBoxes)||stockPackSize>0)?stockCalculated.toLocaleString('es-AR'):'—'} unidades</strong></p>
+                <button className="primary-button" disabled={stockBusy||stockCurrent?.estado!=='EN_CURSO'||!stockMatch||(!stockQty&&!stockBoxes)||(Number(stockBoxes)>0&&stockPackSize<=0)} onClick={()=>void stockRegister()}>Confirmar cantidad contada</button>
               </div>
             </div>}
             <div style={{marginTop:20}}>
