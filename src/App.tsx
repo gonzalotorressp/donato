@@ -383,6 +383,7 @@ export default function App({ profile, onSignOut }: Props) {
 
   const [stockSector,setStockSector] = useState('ALMACEN');
   const [stockMeasurements,setStockMeasurements] = useState<any[]>([]);
+  const [stockReviewRows,setStockReviewRows] = useState<any[]>([]);
   const [stockAssignee,setStockAssignee] = useState('');
   const [stockArticleCode,setStockArticleCode] = useState('');
   const [stockArticleName,setStockArticleName] = useState('');
@@ -469,6 +470,10 @@ export default function App({ profile, onSignOut }: Props) {
     if(measurements.error)setStockError(measurements.error.message);else setStockMeasurements(measurements.data||[]);
     const packs=await supabase.rpc('donato_stock_presentaciones',{p_conteo:id});
     if(!packs.error)setStockPackInfo(packs.data||[]);
+    if(profile.rol==='administrador'){
+      const review=await supabase.rpc('donato_stock_revision',{p_conteo:id});
+      setStockReviewRows(review.error?[]:(review.data||[]));
+    }
   }
   async function stockCreate(){
     if(!supabase||profile.rol!=='administrador'||!stockTitle.trim())return;
@@ -1596,6 +1601,13 @@ export default function App({ profile, onSignOut }: Props) {
                 <p className="stock-total-preview">Total a registrar: <strong>{stockMatch&&Number.isFinite(stockCalculated)&&(!Number(stockBoxes)||stockPackSize>0)?stockCalculated.toLocaleString('es-AR'):'—'} unidades</strong></p>
                 <button className="primary-button" disabled={stockBusy||stockCurrent?.estado!=='EN_CURSO'||!stockMatch||(!stockQty&&!stockBoxes)||(Number(stockBoxes)>0&&stockPackSize<=0)} onClick={()=>void stockRegister()}>Confirmar cantidad contada</button>
               </div>
+            </div>}
+            {stockView==='prepare' && profile.rol==='administrador' && stockCurrent?.estado==='EN_REVISION' && <div className="stock-review-panel">
+              <h3>Revisión de diferencias</h3>
+              {!stockCurrent?.snapshot_at && <p className="stock-review-warning">Todavía no hay foto del stock de Sigma para este conteo. Las diferencias no se pueden calcular correctamente hasta capturar y validar una referencia temporal.</p>}
+              <div className="stock-review-table"><table><thead><tr><th>Artículo</th><th>Stock Sigma</th><th>Contado</th><th>Diferencia</th></tr></thead><tbody>
+                {stockReviewRows.map(row=><tr key={row.articulo_codigo}><td>{row.descripcion}<small>{row.articulo_codigo}</small></td><td>{row.stock_sigma==null?'Sin foto':Number(row.stock_sigma).toLocaleString('es-AR')}</td><td>{Number(row.cantidad_contada).toLocaleString('es-AR')}</td><td>{row.diferencia==null?'—':Number(row.diferencia).toLocaleString('es-AR')}</td></tr>)}
+              </tbody></table></div>
             </div>}
             <div style={{marginTop:20}}>
               <h3>Artículos incluidos ({stockItems.length})</h3>
