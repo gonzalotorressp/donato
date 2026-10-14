@@ -25,6 +25,7 @@ import { DonatoBrand } from './components/DonatoBrand';
 import { supabase } from './lib/supabase';
 import { downloadClosurePdf } from './lib/closurePdf';
 import './blind.css';
+import './stock.css';
 
 type ClosureStatus =
   | 'BORRADOR'
@@ -328,11 +329,12 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockArticleName,setStockArticleName] = useState('');
   const [stockCatalog,setStockCatalog] = useState<any[]>([]);
   const [stockSearch,setStockSearch] = useState('');
+  const [stockSearched,setStockSearched] = useState(false);
   async function stockSearchCatalog(){
     if(!supabase||stockSearch.trim().length<2)return;
-    setStockError('');setStockBusy(true);
+    setStockError('');setStockBusy(true);setStockSearched(false);setStockCatalog([]);
     const {data,error}=await supabase.rpc('donato_stock_buscar_articulos',{p_texto:stockSearch.trim(),p_limite:30});
-    if(error)setStockError(error.message);else setStockCatalog(data||[]);
+    if(error)setStockError('No se pudo consultar el catálogo: '+error.message);else {setStockCatalog(data||[]);setStockSearched(true);}
     setStockBusy(false);
   }
   async function stockAddFromCatalog(code:string){
@@ -349,7 +351,7 @@ export default function App({ profile, onSignOut }: Props) {
   }
   async function stockOpen(id:string){
     if(!supabase)return;
-    setStockSelected(id);setStockError('');
+    setStockSelected(id);setStockError('');setStockCatalog([]);setStockSearch('');setStockSearched(false);
     const {data,error}=profile.rol==='administrador'
       ? await supabase.from('donato_stock_conteo_items').select('*').eq('conteo_id',id)
       : await supabase.rpc('donato_stock_mis_items',{p_conteo:id});
@@ -1396,7 +1398,7 @@ export default function App({ profile, onSignOut }: Props) {
         </aside>
 
         <main className="workspace">
-        {stockMode ? <section className="panel" style={{padding:'clamp(16px, 4vw, 28px)'}}>
+        {stockMode ? <section className="panel stock-workspace" style={{padding:'clamp(16px, 4vw, 28px)'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:16}}>
             <div><p className="eyebrow">DEPÓSITO 03 · DONATO</p><h1 style={{margin:'4px 0'}}>Control de stock</h1><p style={{margin:0}}>Conteos ciegos por artículo y sector</p></div>
             <button className="back-button" onClick={()=>{setStockMode(false);setDashboardMode('today');void loadDashboard();}}>Volver a cajas</button>
@@ -1430,14 +1432,19 @@ export default function App({ profile, onSignOut }: Props) {
               <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
                 <h3 style={{marginTop:0}}>1. Seleccionar artículos</h3>
                 <p>Buscá por descripción, código o EAN y agregá los productos que quieras controlar.</p>
-                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                  <input style={{flex:'1 1 220px',minWidth:0}} placeholder="Buscar producto..." value={stockSearch} onChange={e=>setStockSearch(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void stockSearchCatalog();}}/>
-                  <button className="primary-button" disabled={stockBusy||stockSearch.trim().length<2} onClick={()=>void stockSearchCatalog()}>Buscar</button>
+                <div className="stock-search-bar">
+                  <input aria-label="Buscar artículos" placeholder="Ej.: Dove, lavandina o código EAN" value={stockSearch} onChange={e=>{setStockSearch(e.target.value);setStockSearched(false);setStockCatalog([]);}} onKeyDown={e=>{if(e.key==='Enter')void stockSearchCatalog();}}/>
+                  <button className="primary-button" disabled={stockBusy||stockSearch.trim().length<2} onClick={()=>void stockSearchCatalog()}>{stockBusy?'Buscando…':'Buscar artículos'}</button>
                 </div>
-                <div style={{display:'grid',gap:8,marginTop:12}}>{stockCatalog.map(a=><div key={a.articulo_codigo} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'10px 0',borderBottom:'1px solid #e5e7eb'}}>
-                  <span style={{minWidth:0,overflowWrap:'anywhere'}}><strong>{a.articulo_nombre}</strong><span style={{display:'block',fontSize:12}}>{a.articulo_codigo}{a.ean_unidad?' · EAN '+a.ean_unidad:''}</span></span>
-                  <button disabled={stockBusy||stockItems.some(i=>i.articulo_codigo===a.articulo_codigo)} onClick={()=>void stockAddFromCatalog(a.articulo_codigo)}>{stockItems.some(i=>i.articulo_codigo===a.articulo_codigo)?'Agregado':'+ Agregar'}</button>
-                </div>)}</div>
+                <p className="stock-helper">Escribí al menos 2 caracteres y tocá Buscar artículos para ver el listado de Sigma.</p>
+                {stockSearched && <p className="stock-results-heading">{stockCatalog.length ? stockCatalog.length+' resultados. Tocá Agregar en el producto que quieras contar.' : 'No se encontraron artículos. Probá otra descripción o código.'}</p>}
+                {stockCatalog.length>0 && <div className="stock-results-list">{stockCatalog.map(a=>{
+                  const added=stockItems.some(i=>i.articulo_codigo===a.articulo_codigo);
+                  return <div key={a.articulo_codigo} className="stock-result">
+                    <div className="stock-result-info"><strong>{a.articulo_nombre}</strong><small>Código {a.articulo_codigo}{a.ean_unidad?' · EAN '+a.ean_unidad:''}</small></div>
+                    <button type="button" className={added?'stock-added':'stock-add-button'} disabled={stockBusy||added} onClick={()=>void stockAddFromCatalog(a.articulo_codigo)}>{added?'✓ Agregado':'+ Agregar'}</button>
+                  </div>;
+                })}</div>}
                 <details style={{marginTop:12}}><summary>Agregar un artículo manualmente</summary><div style={{display:'grid',gap:8,marginTop:10}}><input placeholder="Código Sigma" value={stockArticleCode} onChange={e=>setStockArticleCode(e.target.value)}/><input placeholder="Descripción" value={stockArticleName} onChange={e=>setStockArticleName(e.target.value)}/><button disabled={stockBusy} onClick={()=>void stockAddItem()}>Agregar artículo</button></div></details>
               </div>
               <div style={{padding:16,border:'1px solid #dce3ec',borderRadius:14}}>
