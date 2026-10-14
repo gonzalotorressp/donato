@@ -48,3 +48,13 @@
 .stock-entry-card .stock-entry-link{color:#225b9e;font-weight:700;margin-top:auto}
 .stock-workspace .stock-clear-action{display:inline-flex;align-items:center;padding:5px 10px;margin:0 0 12px;border:0;background:transparent;color:#a43b3b;font-size:13px;font-weight:600;box-shadow:none;min-height:30px}
 .stock-workspace .stock-clear-action:hover{background:#fff2f2}
+
+.stock-code-entry{display:flex;gap:8px;align-items:stretch}
+.stock-code-entry input{flex:1;min-width:0}
+.stock-workspace .stock-code-entry button{white-space:nowrap;padding:8px 12px;border-radius:10px;border:1px solid #b6c9dc;background:#eef5ff;color:#20568e;font-weight:650}
+.stock-camera{background:#111827;color:white;border-radius:12px;overflow:hidden;text-align:center;padding:10px}
+.stock-camera video{width:100%;max-height:300px;object-fit:cover;border-radius:8px}
+.stock-camera p{font-size:13px;margin:6px 0}
+.stock-quantity-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.stock-total-preview{background:#eff6ff;border-radius:10px;padding:12px;font-size:15px}
+@media(max-width:480px){.stock-quantity-grid{grid-template-columns:1fr}.stock-code-entry{flex-wrap:wrap}.stock-code-entry button{flex:1}}
