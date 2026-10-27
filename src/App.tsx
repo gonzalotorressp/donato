@@ -1666,7 +1666,7 @@ export default function App({ profile, onSignOut }: Props) {
             <div style={{marginTop:14,display:'grid',gap:8}}>
               <label htmlFor="sigma-price-article">Código de artículo Sigma</label>
               <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
-              <button type="button" disabled={priceLookupBusy||!/^\\d{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
+              <button type="button" disabled={priceLookupBusy||!/^[0-9]{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
                 setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);
                 try {
                   if(!supabase)throw new Error('Supabase no disponible');
