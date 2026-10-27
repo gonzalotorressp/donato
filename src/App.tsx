@@ -1563,6 +1563,18 @@ export default function App({ profile, onSignOut }: Props) {
             <p>{stockItems.length} artículos seleccionados · {stockMeasurements.length} registros de conteo</p>
             {profile.rol==='administrador' && <div className="stock-sigma-test" style={{margin:'14px 0',padding:14,border:'1px solid #dce3ec',borderRadius:12}}>
             <strong>Conexión con Sigma · Prueba</strong>
+            <div style={{marginTop:10}}>
+              <button type="button" onClick={async()=>{
+                try {
+                  if(!supabase)throw new Error('Supabase no disponible');
+                  const {data:{session}}=await supabase.auth.getSession();
+                  if(!session?.access_token)throw new Error('Iniciá sesión');
+                  const response=await fetch('/api/sigma/test-precio',{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
+                  const result=await response.json();
+                  window.alert('Prueba lista 4 · artículo 154\\n'+JSON.stringify(result,null,2).slice(0,2800));
+                } catch(error) {window.alert('Error: '+String(error));}
+              }}>Probar precio Sigma · lista 4</button>
+            </div>
                           <div>
                 <button type="button" disabled={stockSigmaTesting} onClick={()=>void stockTestSigma()}>{stockSigmaTesting?'Consultando Sigma…':'Probar conexión Sigma · artículo 154'}</button>
                 {stockSigmaTest && <p><strong>Conexión correcta:</strong> {stockSigmaTest.stockFisico.toLocaleString('es-AR')} unidades en depósito {stockSigmaTest.deposito}. Consulta: {new Date(stockSigmaTest.capturadoAt).toLocaleString('es-AR')}. <strong>Solo prueba, no modifica la foto.</strong></p>}
