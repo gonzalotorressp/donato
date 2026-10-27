@@ -320,6 +320,10 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockTitle,setStockTitle] = useState('');
   const [stockError,setStockError] = useState('');
   const [stockBusy,setStockBusy] = useState(false);
+  const [priceArticleId,setPriceArticleId] = useState('154');
+  const [priceLookupBusy,setPriceLookupBusy] = useState(false);
+  const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;moneda?:string}|null>(null);
+  const [priceLookupError,setPriceLookupError] = useState('');
   const [stockSigmaTest,setStockSigmaTest] = useState<{stockFisico:number,deposito:string,capturadoAt:string}|null>(null);
   const [stockSigmaTesting,setStockSigmaTesting] = useState(false);
   async function stockTestSigma(){
@@ -1563,6 +1567,29 @@ export default function App({ profile, onSignOut }: Props) {
             <p>{stockItems.length} artículos seleccionados · {stockMeasurements.length} registros de conteo</p>
             {profile.rol==='administrador' && <div className="stock-sigma-test" style={{margin:'14px 0',padding:14,border:'1px solid #dce3ec',borderRadius:12}}>
             <strong>Conexión con Sigma · Prueba</strong>
+            <div style={{marginTop:14,display:'grid',gap:8}}>
+              <label htmlFor="sigma-price-article">Código de artículo Sigma</label>
+              <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
+              <button type="button" disabled={priceLookupBusy||!/^\\d{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
+                setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);
+                try {
+                  if(!supabase)throw new Error('Supabase no disponible');
+                  const {data:{session}}=await supabase.auth.getSession();
+                  if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
+                  const response=await fetch('/api/sigma/precio?id='+encodeURIComponent(priceArticleId.trim()),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
+                  const result=await response.json();
+                  if(!response.ok)throw new Error(result.error||'No se pudo consultar Sigma');
+                  setPriceLookupResult(result);
+                } catch(error){setPriceLookupError(error instanceof Error?error.message:String(error));}
+                finally {setPriceLookupBusy(false);}
+              }}>{priceLookupBusy?'Consultando…':'Consultar precio de artículo · lista 4'}</button>
+              {priceLookupResult&&<div role="status" style={{padding:12,background:'#f0fdf4',borderRadius:8}}>
+                <strong>Artículo {priceLookupResult.id}</strong><br/>
+                Precio sin IVA: {Number(priceLookupResult.precioSinIva).toLocaleString('es-AR',{minimumFractionDigits:4,maximumFractionDigits:4,style:'currency',currency:'ARS'})}
+                <br/><small>Empresa 0001 · Sucursal 0004 · Lista 4. IVA y políticas pendientes de integrar.</small>
+              </div>}
+              {priceLookupError&&<p role="alert" style={{color:'#b91c1c'}}>{priceLookupError}</p>}
+            </div>
             <div style={{marginTop:10}}>
               <button type="button" onClick={async()=>{
                 try {
