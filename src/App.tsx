@@ -322,6 +322,7 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockError,setStockError] = useState('');
   const [stockBusy,setStockBusy] = useState(false);
   const [priceArticleId,setPriceArticleId] = useState('154');
+  const [shelfPriceInput,setShelfPriceInput] = useState('');
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
   const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string}|null>(null);
   const [priceLookupError,setPriceLookupError] = useState('');
@@ -1689,6 +1690,27 @@ export default function App({ profile, onSignOut }: Props) {
                 } catch(error){setPriceLookupError(error instanceof Error?error.message:String(error));}
                 finally {setPriceLookupBusy(false);}
               }}>{priceLookupBusy?'Consultando…':'Consultar precio de artículo · lista 4'}</button>
+              <div style={{display:'grid',gap:8,padding:14,border:'1px solid #dce3ec',borderRadius:10}}>
+                <label htmlFor="shelf-price">Precio de góndola / etiqueta (con IVA)</label>
+                <input id="shelf-price" inputMode="decimal" value={shelfPriceInput} onChange={e=>setShelfPriceInput(e.target.value)} placeholder="Ej.: 1950,00" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
+                {(()=>{
+                  const label=shelfPriceInput.trim();
+                  const normalized=label.replace(/\\s/g,'').replace(/\\./g,'').replace(',','.');
+                  const valid=/^[0-9]+(\\.[0-9]{1,2})?$/.test(normalized);
+                  const gondola=valid?Number(normalized):null;
+                  const sigma=priceLookupResult?.precioConIva;
+                  const missing=!label||sigma==null;
+                  const match=!missing&&gondola!=null&&Math.abs(gondola-sigma)<0.005;
+                  const background=missing?'#fef3c7':match?'#dcfce7':'#fee2e2';
+                  const foreground=missing?'#92400e':match?'#166534':'#991b1b';
+                  const title=missing?'PRECIO NO ESTÁ':match?'PRECIO COINCIDE':'PRECIO NO COINCIDE';
+                  return <div role="status" style={{background,color:foreground,padding:18,borderRadius:10,textAlign:'center'}}>
+                    <strong style={{fontSize:20}}>{!missing&&gondola==null?'PRECIO INVÁLIDO':title}</strong>
+                    <p style={{margin:'8px 0 0'}}>{!label?'Ingresá el precio de la etiqueta para comparar.':sigma==null?'No hay un precio final de Sigma disponible para comparar.':gondola==null?'Ingresá un importe válido (ej.: 1950,00).':match?'El precio de góndola coincide con el precio de lista 4 con IVA.':'Diferencia góndola - Sigma: '+(gondola-sigma).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</p>
+                  </div>;
+                })()}
+                <small>Comparación provisoria contra lista 4 con IVA, sin aplicar políticas comerciales. No reemplaza la verificación del precio efectivo de venta.</small>
+              </div>
               {priceLookupResult&&<div role="status" style={{padding:12,background:'#f0fdf4',borderRadius:8}}>
                 <strong>Artículo {priceLookupResult.id}{priceLookupResult.descripcion?' · '+priceLookupResult.descripcion:''}</strong><br/>
                 Precio sin IVA: {Number(priceLookupResult.precioSinIva).toLocaleString('es-AR',{minimumFractionDigits:4,maximumFractionDigits:4,style:'currency',currency:'ARS'})}
