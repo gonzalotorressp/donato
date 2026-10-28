@@ -323,6 +323,9 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockBusy,setStockBusy] = useState(false);
   const [priceArticleId,setPriceArticleId] = useState('154');
   const [shelfPriceInput,setShelfPriceInput] = useState('');
+  const [priceSaving,setPriceSaving] = useState(false);
+  const [priceSaveMessage,setPriceSaveMessage] = useState('');
+  const [priceHistory,setPriceHistory] = useState<{id:string;creado_at:string;descripcion:string|null;articulo_id:string;estado:string}[]>([]);
   const [priceCheckStatus,setPriceCheckStatus] = useState<'ok'|'error'|'missing'|null>(null);
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
   const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string}|null>(null);
@@ -1669,8 +1672,8 @@ export default function App({ profile, onSignOut }: Props) {
           <p>Consultá el artículo, verificá su etiqueta con un toque y revisá las bonificaciones por cantidad.</p>
             <div style={{marginTop:14,display:'grid',gap:8}}>
               <label htmlFor="sigma-price-article">Código de artículo Sigma</label>
-              <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
-              <button type="button" disabled={priceLookupBusy||!/^[0-9]{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
+              <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();document.getElementById("price-search-button")?.click();}}} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
+              <button id="price-search-button" type="button" disabled={priceLookupBusy||!/^[0-9]{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
                 setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);setPricePolicies([]);setPricePolicyNote('');setPriceCheckStatus(null);
                 try {
                   if(!supabase)throw new Error('Supabase no disponible');
@@ -1725,6 +1728,31 @@ export default function App({ profile, onSignOut }: Props) {
                 </div>):<p>No se encontraron políticas directas en la consulta.</p>}
                 {pricePolicyNote&&<p style={{fontSize:12,color:'#92400e'}}>{pricePolicyNote}</p>}
               </div>}
+
+              {priceLookupResult&&<div style={{display:'grid',gap:10,padding:14,border:'1px solid #dce3ec',borderRadius:10}}>
+                {priceCheckStatus==='error'&&<label>Precio observado (opcional)<input value={shelfPriceInput} onChange={e=>setShelfPriceInput(e.target.value)} inputMode="decimal" placeholder="Ej.: 1950,00" style={{display:'block',padding:10,marginTop:5}}/></label>}
+                <button type="button" className="primary-button" disabled={!priceCheckStatus||priceSaving} onClick={async()=>{
+                  if(!supabase||!priceCheckStatus||!priceLookupResult)return;
+                  setPriceSaving(true);setPriceSaveMessage('');
+                  try {
+                    const amount=shelfPriceInput.trim().replace(',','.');
+                    if(amount&&!/^\d+(\.\d{1,2})?$/.test(amount))throw new Error('Precio observado inválido');
+                    const {error}=await supabase.from('donato_controles_precios').insert({articulo_id:priceLookupResult.id,descripcion:priceLookupResult.descripcion||null,precio_lista_con_iva:priceLookupResult.precioConIva,precio_observado:amount?Number(amount):null,estado:priceCheckStatus});
+                    if(error)throw error;
+                    setPriceSaveMessage('Control guardado');
+                    setPriceCheckStatus(null);setShelfPriceInput('');
+                    const {data}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado').order('creado_at',{ascending:false}).limit(10);
+                    setPriceHistory(data||[]);
+                    document.getElementById('sigma-price-article')?.focus();
+                  }catch(error){setPriceSaveMessage('Error al guardar: '+(error instanceof Error?error.message:String(error)));}
+                  finally{setPriceSaving(false);}
+                }}>{priceSaving?'Guardando…':'Guardar control'}</button>
+                {priceSaveMessage&&<p role="status">{priceSaveMessage}</p>}
+              </div>}
+              <div style={{padding:12,border:'1px solid #dce3ec',borderRadius:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}><strong>Mis últimos controles</strong><button type="button" onClick={async()=>{if(!supabase)return;const {data,error}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado').order('creado_at',{ascending:false}).limit(10);if(error)setPriceLookupError(error.message);else setPriceHistory(data||[]);}}>Actualizar</button></div>
+                {priceHistory.map(h=><div key={h.id} style={{padding:'8px 0',fontSize:13,borderBottom:'1px solid #e2e8f0'}}>{new Date(h.creado_at).toLocaleString('es-AR')} · {h.descripcion||h.articulo_id} · {h.estado==='ok'?'Precio OK':h.estado==='error'?'Precio erróneo':'Precio no presente'}</div>)}
+              </div>
               {priceLookupError&&<p role="alert" style={{color:'#b91c1c'}}>{priceLookupError}</p>}
             </div>
         </section> : null}
