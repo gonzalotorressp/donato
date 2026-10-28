@@ -323,7 +323,7 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockBusy,setStockBusy] = useState(false);
   const [priceArticleId,setPriceArticleId] = useState('154');
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
-  const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;moneda?:string}|null>(null);
+  const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string}|null>(null);
   const [priceLookupError,setPriceLookupError] = useState('');
   const [stockSigmaTest,setStockSigmaTest] = useState<{stockFisico:number,deposito:string,capturadoAt:string}|null>(null);
   const [stockSigmaTesting,setStockSigmaTesting] = useState(false);
@@ -1680,9 +1680,12 @@ export default function App({ profile, onSignOut }: Props) {
                 finally {setPriceLookupBusy(false);}
               }}>{priceLookupBusy?'Consultando…':'Consultar precio de artículo · lista 4'}</button>
               {priceLookupResult&&<div role="status" style={{padding:12,background:'#f0fdf4',borderRadius:8}}>
-                <strong>Artículo {priceLookupResult.id}</strong><br/>
+                <strong>Artículo {priceLookupResult.id}{priceLookupResult.descripcion?' · '+priceLookupResult.descripcion:''}</strong><br/>
                 Precio sin IVA: {Number(priceLookupResult.precioSinIva).toLocaleString('es-AR',{minimumFractionDigits:4,maximumFractionDigits:4,style:'currency',currency:'ARS'})}
-                <br/><small>Empresa 0001 · Sucursal 0004 · Lista 4. IVA y políticas pendientes de integrar.</small>
+                <br/>IVA: {priceLookupResult.ivaPorcentual==null?'No disponible':priceLookupResult.ivaPorcentual+'%'}
+                <br/><strong>Precio final con IVA: {priceLookupResult.precioConIva==null?'No disponible':Number(priceLookupResult.precioConIva).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</strong>
+                <br/><small>Empresa 0001 · Sucursal 0004 · Lista 4.</small>
+                {priceLookupResult.aviso&&<p style={{color:'#92400e'}}>{priceLookupResult.aviso}</p>}
               </div>}
               {priceLookupError&&<p role="alert" style={{color:'#b91c1c'}}>{priceLookupError}</p>}
             </div>
