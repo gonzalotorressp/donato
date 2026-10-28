@@ -1702,8 +1702,8 @@ export default function App({ profile, onSignOut }: Props) {
                   </div>
                   <div role="group" aria-label="Estado de la etiqueta de góndola" style={{display:'flex',gap:8}}>
                     {([
-                      {value:'error' as const,label:'Precio erróneo',Icon:XCircle,color:'#b91c1c',bg:'#fee2e2'},
                       {value:'ok' as const,label:'Precio OK',Icon:CheckCircle2,color:'#15803d',bg:'#dcfce7'},
+                      {value:'error' as const,label:'Precio erróneo',Icon:XCircle,color:'#b91c1c',bg:'#fee2e2'},
                       {value:'missing' as const,label:'Precio no presente',Icon:EyeOff,color:'#a16207',bg:'#fef3c7'}
                     ]).map(({value,label,Icon,color,bg})=><button key={value} type="button" title={label} aria-label={label} aria-pressed={priceCheckStatus===value} onClick={()=>setPriceCheckStatus(value)} style={{width:54,height:54,display:'grid',placeItems:'center',borderRadius:12,border:priceCheckStatus===value?'3px solid '+color:'1px solid #cbd5e1',background:priceCheckStatus===value?bg:'#fff',color,cursor:'pointer'}}><Icon size={28}/></button>)}
                   </div>
