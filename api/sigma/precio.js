@@ -16,8 +16,29 @@ export default async function handler(req, res) {
     const rows = await response.json();
     const item = Array.isArray(rows) ? rows.find(row => String(row.id) === id) : null;
     if (!item) return res.status(404).json({ error: 'Precio no encontrado' });
+    const base = 'https://secure.sig2k.com/sigmasaas/sanpablo@sigma/sigma/api/v10/';
+    const articleUrl = new URL(base + 'ExportArticulos');
+    articleUrl.searchParams.set('id', id);
+    let article = null;
+    let articleError = null;
+    try {
+      const articleResponse = await fetch(articleUrl, { headers: { 'X-Auth-Token': token, accept: 'application/json' }, signal: AbortSignal.timeout(12000) });
+      if (!articleResponse.ok) throw new Error('HTTP ' + articleResponse.status);
+      const articleRows = await articleResponse.json();
+      article = Array.isArray(articleRows) ? articleRows.find(row => String(row.id) === id) : null;
+      if (!article) throw new Error('Artículo no encontrado en maestro');
+    } catch (error) { articleError = error.message; }
+    const iva = article?.ivaPorcentual == null ? null : Number(article.ivaPorcentual);
+    const neto = Number(item.precio);
+    const precioConIva = Number.isFinite(iva) && Number.isFinite(neto) ? Math.round((neto * (1 + iva / 100) + Number.EPSILON) * 100) / 100 : null;
     res.setHeader('Cache-Control', 'private, no-store');
-    return res.status(200).json({ id, lista: '4', empresa: '0001', sucursal: '0004', precioSinIva: item.precio, moneda: item.moneda });
+    return res.status(200).json({
+      id, lista: '4', empresa: '0001', sucursal: '0004',
+      descripcion: article?.descripcion || null, precioSinIva: item.precio, moneda: item.moneda,
+      ivaPorcentual: Number.isFinite(iva) ? iva : null, precioConIva,
+      articulo: article ? { rubro: article.rubroCodigo ?? null, division: article.divisionCodigo ?? null, grupo: article.grupoCodigo ?? null, proveedor: article.proveedorCodigo ?? null } : null,
+      aviso: articleError ? 'No se pudo consultar el IVA del maestro: ' + articleError : null
+    });
   } catch (error) {
     return res.status(502).json({ error: 'No se pudo consultar el precio en Sigma' });
   }
