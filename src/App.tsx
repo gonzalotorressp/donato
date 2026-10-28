@@ -323,6 +323,7 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockBusy,setStockBusy] = useState(false);
   const [priceArticleId,setPriceArticleId] = useState('154');
   const [shelfPriceInput,setShelfPriceInput] = useState('');
+  const [priceCheckStatus,setPriceCheckStatus] = useState<'ok'|'error'|'missing'|null>(null);
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
   const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string}|null>(null);
   const [priceLookupError,setPriceLookupError] = useState('');
@@ -1665,12 +1666,12 @@ export default function App({ profile, onSignOut }: Props) {
         {priceMode ? <section className="panel stock-workspace" style={{padding:'clamp(16px, 4vw, 28px)'}}>
           <p className="eyebrow">DONATO · EMPRESA 0001 · SUCURSAL 0004</p>
           <h1 style={{margin:'4px 0 12px'}}>Control Precios</h1>
-          <p>Consultá el precio de lista 4 por código de artículo. Próximamente: lector EAN, IVA y políticas de descuento.</p>
+          <p>Consultá el artículo, verificá su etiqueta con un toque y revisá las bonificaciones por cantidad.</p>
             <div style={{marginTop:14,display:'grid',gap:8}}>
               <label htmlFor="sigma-price-article">Código de artículo Sigma</label>
               <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
               <button type="button" disabled={priceLookupBusy||!/^[0-9]{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
-                setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);setPricePolicies([]);setPricePolicyNote('');
+                setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);setPricePolicies([]);setPricePolicyNote('');setPriceCheckStatus(null);
                 try {
                   if(!supabase)throw new Error('Supabase no disponible');
                   const {data:{session}}=await supabase.auth.getSession();
@@ -1690,40 +1691,34 @@ export default function App({ profile, onSignOut }: Props) {
                 } catch(error){setPriceLookupError(error instanceof Error?error.message:String(error));}
                 finally {setPriceLookupBusy(false);}
               }}>{priceLookupBusy?'Consultando…':'Consultar precio de artículo · lista 4'}</button>
-              <div style={{display:'grid',gap:8,padding:14,border:'1px solid #dce3ec',borderRadius:10}}>
-                <label htmlFor="shelf-price">Precio de góndola / etiqueta (con IVA)</label>
-                <input id="shelf-price" inputMode="decimal" value={shelfPriceInput} onChange={e=>setShelfPriceInput(e.target.value)} placeholder="Ej.: 1950,00" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
-                {(()=>{
-                  const label=shelfPriceInput.trim();
-                  const normalized=label.replace(/\\s/g,'').replace(/\\./g,'').replace(',','.');
-                  const valid=/^[0-9]+(\\.[0-9]{1,2})?$/.test(normalized);
-                  const gondola=valid?Number(normalized):null;
-                  const sigma=priceLookupResult?.precioConIva;
-                  const missing=!label||sigma==null;
-                  const match=!missing&&gondola!=null&&Math.abs(gondola-sigma)<0.005;
-                  const background=missing?'#fef3c7':match?'#dcfce7':'#fee2e2';
-                  const foreground=missing?'#92400e':match?'#166534':'#991b1b';
-                  const title=missing?'PRECIO NO ESTÁ':match?'PRECIO COINCIDE':'PRECIO NO COINCIDE';
-                  return <div role="status" style={{background,color:foreground,padding:18,borderRadius:10,textAlign:'center'}}>
-                    <strong style={{fontSize:20}}>{!missing&&gondola==null?'PRECIO INVÁLIDO':title}</strong>
-                    <p style={{margin:'8px 0 0'}}>{!label?'Ingresá el precio de la etiqueta para comparar.':sigma==null?'No hay un precio final de Sigma disponible para comparar.':gondola==null?'Ingresá un importe válido (ej.: 1950,00).':match?'El precio de góndola coincide con el precio de lista 4 con IVA.':'Diferencia góndola - Sigma: '+(gondola-sigma).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</p>
-                  </div>;
-                })()}
-                <small>Comparación provisoria contra lista 4 con IVA, sin aplicar políticas comerciales. No reemplaza la verificación del precio efectivo de venta.</small>
-              </div>
-              {priceLookupResult&&<div role="status" style={{padding:12,background:'#f0fdf4',borderRadius:8}}>
-                <strong>Artículo {priceLookupResult.id}{priceLookupResult.descripcion?' · '+priceLookupResult.descripcion:''}</strong><br/>
-                Precio sin IVA: {Number(priceLookupResult.precioSinIva).toLocaleString('es-AR',{minimumFractionDigits:4,maximumFractionDigits:4,style:'currency',currency:'ARS'})}
-                <br/>IVA: {priceLookupResult.ivaPorcentual==null?'No disponible':priceLookupResult.ivaPorcentual+'%'}
-                <br/><strong>Precio final con IVA: {priceLookupResult.precioConIva==null?'No disponible':Number(priceLookupResult.precioConIva).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</strong>
-                <br/><small>Empresa 0001 · Sucursal 0004 · Lista 4.</small>
+              {priceLookupResult&&<div style={{padding:16,border:'1px solid #dce3ec',borderRadius:12,background:'#fff'}}>
+                <div style={{fontSize:13,color:'#64748b'}}>Artículo {priceLookupResult.id} · Lista 4 · Unidad</div>
+                <h2 style={{fontSize:18,margin:'6px 0 14px'}}>{priceLookupResult.descripcion||'Artículo sin descripción'}</h2>
+                <div style={{display:'flex',gap:12,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap'}}>
+                  <div>
+                    <div style={{fontSize:12,color:'#64748b'}}>Precio unitario sin políticas · con IVA</div>
+                    <strong style={{fontSize:'clamp(26px, 5vw, 36px)',color:'#0f172a'}}>{priceLookupResult.precioConIva==null?'Sin precio':Number(priceLookupResult.precioConIva).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</strong>
+                    <div style={{fontSize:12,color:'#64748b'}}>Neto: {Number(priceLookupResult.precioSinIva).toLocaleString('es-AR',{style:'currency',currency:'ARS'})} · IVA {priceLookupResult.ivaPorcentual==null?'no disponible':priceLookupResult.ivaPorcentual+'%'}</div>
+                  </div>
+                  <div role="group" aria-label="Estado de la etiqueta de góndola" style={{display:'flex',gap:8}}>
+                    {([
+                      {value:'error' as const,label:'Precio erróneo',Icon:XCircle,color:'#b91c1c',bg:'#fee2e2'},
+                      {value:'ok' as const,label:'Precio OK',Icon:CheckCircle2,color:'#15803d',bg:'#dcfce7'},
+                      {value:'missing' as const,label:'Precio no presente',Icon:EyeOff,color:'#a16207',bg:'#fef3c7'}
+                    ]).map(({value,label,Icon,color,bg})=><button key={value} type="button" title={label} aria-label={label} aria-pressed={priceCheckStatus===value} onClick={()=>setPriceCheckStatus(value)} style={{width:54,height:54,display:'grid',placeItems:'center',borderRadius:12,border:priceCheckStatus===value?'3px solid '+color:'1px solid #cbd5e1',background:priceCheckStatus===value?bg:'#fff',color,cursor:'pointer'}}><Icon size={28}/></button>)}
+                  </div>
+                </div>
+                {priceCheckStatus&&<div role="status" style={{marginTop:12,padding:'8px 10px',borderRadius:8,background:priceCheckStatus==='ok'?'#dcfce7':priceCheckStatus==='error'?'#fee2e2':'#fef3c7',color:priceCheckStatus==='ok'?'#166534':priceCheckStatus==='error'?'#991b1b':'#92400e',fontWeight:600}}>
+                  {priceCheckStatus==='ok'?'✓ Precio OK':priceCheckStatus==='error'?'✕ Precio erróneo':'— Precio no presente'} · Selección visual, aún no guardada.
+                </div>}
                 {priceLookupResult.aviso&&<p style={{color:'#92400e'}}>{priceLookupResult.aviso}</p>}
               </div>}
               {priceLookupResult&&<div style={{padding:12,border:'1px solid #dce3ec',borderRadius:8}}>
-                <strong>Políticas comerciales específicas del artículo</strong>
+                <strong>Bonificaciones y políticas del artículo</strong>
                 {pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
                   <strong>Política #{p.id}</strong>{p.ordenManual!=null?' · Orden manual '+p.ordenManual:''}
                   <br/>{p.descuento!=null?'Descuento '+p.descuento+'%':''}{p.precio!=null?' · Precio fijo $'+Number(p.precio).toLocaleString('es-AR'):''}
+                  <br/><strong style={{fontSize:13,color:'#334155'}}>{p.cantidadMinima!=null?'A partir de '+p.cantidadMinima+(p.cantidadEnBultos==='S'?' bultos':' unidades'):'Sin mínimo de cantidad informado'}</strong>
                   <br/><small>Vigencia: {p.vigenciaDesde||'sin inicio'} a {p.vigenciaHasta||'sin fin'}
                   {p.cantidadMinima!=null?' · Mínimo '+p.cantidadMinima:''}{p.cantidadMaxima!=null?' · Máximo '+p.cantidadMaxima:''}
                   {p.cantidadEnBultos==='S'?' bultos':''}{p.condicionVenta?' · Condición '+p.condicionVenta:''}</small>
