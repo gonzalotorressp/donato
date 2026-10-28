@@ -325,6 +325,8 @@ export default function App({ profile, onSignOut }: Props) {
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
   const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string}|null>(null);
   const [priceLookupError,setPriceLookupError] = useState('');
+  const [pricePolicies,setPricePolicies] = useState<{id:number;descuento:number|null;precio:number|null;ordenManual:number|null;cantidadMinima:number|null;cantidadMaxima:number|null;vigenciaDesde:string|null;vigenciaHasta:string|null;cantidadEnBultos:string|null;condicionVenta:string|null}[]>([]);
+  const [pricePolicyNote,setPricePolicyNote] = useState('');
   const [stockSigmaTest,setStockSigmaTest] = useState<{stockFisico:number,deposito:string,capturadoAt:string}|null>(null);
   const [stockSigmaTesting,setStockSigmaTesting] = useState(false);
   async function stockTestSigma(){
@@ -1667,7 +1669,7 @@ export default function App({ profile, onSignOut }: Props) {
               <label htmlFor="sigma-price-article">Código de artículo Sigma</label>
               <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
               <button type="button" disabled={priceLookupBusy||!/^[0-9]{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
-                setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);
+                setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);setPricePolicies([]);setPricePolicyNote('');
                 try {
                   if(!supabase)throw new Error('Supabase no disponible');
                   const {data:{session}}=await supabase.auth.getSession();
@@ -1676,6 +1678,14 @@ export default function App({ profile, onSignOut }: Props) {
                   const result=await response.json();
                   if(!response.ok)throw new Error(result.error||'No se pudo consultar Sigma');
                   setPriceLookupResult(result);
+                  try {
+                    const policiesResponse=await fetch('/api/sigma/politicas-articulo?id='+encodeURIComponent(priceArticleId.trim()),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
+                    const policiesResult=await policiesResponse.json();
+                    if(!policiesResponse.ok)throw new Error(policiesResult.error||'Error al consultar políticas');
+                    setPricePolicies(policiesResult.politicasDirectas||[]);
+                    setPricePolicyNote((policiesResult.nota||'')+(policiesResult.consultaCompleta?'':' Advertencia: consulta parcial, pueden faltar políticas.'));
+                  } catch(policyError){setPricePolicyNote('No se pudieron consultar políticas: '+(policyError instanceof Error?policyError.message:String(policyError)));}
+
                 } catch(error){setPriceLookupError(error instanceof Error?error.message:String(error));}
                 finally {setPriceLookupBusy(false);}
               }}>{priceLookupBusy?'Consultando…':'Consultar precio de artículo · lista 4'}</button>
@@ -1686,6 +1696,17 @@ export default function App({ profile, onSignOut }: Props) {
                 <br/><strong>Precio final con IVA: {priceLookupResult.precioConIva==null?'No disponible':Number(priceLookupResult.precioConIva).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</strong>
                 <br/><small>Empresa 0001 · Sucursal 0004 · Lista 4.</small>
                 {priceLookupResult.aviso&&<p style={{color:'#92400e'}}>{priceLookupResult.aviso}</p>}
+              </div>}
+              {priceLookupResult&&<div style={{padding:12,border:'1px solid #dce3ec',borderRadius:8}}>
+                <strong>Políticas comerciales específicas del artículo</strong>
+                {pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
+                  <strong>Política #{p.id}</strong>{p.ordenManual!=null?' · Orden manual '+p.ordenManual:''}
+                  <br/>{p.descuento!=null?'Descuento '+p.descuento+'%':''}{p.precio!=null?' · Precio fijo $'+Number(p.precio).toLocaleString('es-AR'):''}
+                  <br/><small>Vigencia: {p.vigenciaDesde||'sin inicio'} a {p.vigenciaHasta||'sin fin'}
+                  {p.cantidadMinima!=null?' · Mínimo '+p.cantidadMinima:''}{p.cantidadMaxima!=null?' · Máximo '+p.cantidadMaxima:''}
+                  {p.cantidadEnBultos==='S'?' bultos':''}{p.condicionVenta?' · Condición '+p.condicionVenta:''}</small>
+                </div>):<p>No se encontraron políticas directas en la consulta.</p>}
+                {pricePolicyNote&&<p style={{fontSize:12,color:'#92400e'}}>{pricePolicyNote}</p>}
               </div>}
               {priceLookupError&&<p role="alert" style={{color:'#b91c1c'}}>{priceLookupError}</p>}
             </div>
