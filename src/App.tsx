@@ -1671,6 +1671,20 @@ export default function App({ profile, onSignOut }: Props) {
           <h1 style={{margin:'4px 0 12px'}}>Control Precios</h1>
           <p>Consultá el artículo, verificá su etiqueta con un toque y revisá las bonificaciones por cantidad.</p>
             <div style={{marginTop:14,display:'grid',gap:8}}>
+              <label htmlFor="price-scan-input">Escáner Bluetooth (EAN)</label>
+              <input id="price-scan-input" autoComplete="off" inputMode="numeric" placeholder="Escaneá el EAN y Enter" style={{maxWidth:360,padding:10,border:'1px solid #cbd5e1',borderRadius:8}} onKeyDown={async e=>{
+                if(e.key!=='Enter')return;
+                e.preventDefault();
+                const ean=e.currentTarget.value.trim();
+                if(!/^[0-9]{8,14}$/.test(ean)){setPriceLookupError('Código EAN inválido');return;}
+                if(!supabase){setPriceLookupError('Supabase no disponible');return;}
+                const {data,error}=await supabase.from('logistica_articulos').select('articulo_codigo').or('ean_unidad.eq.'+ean+',ean_bulto.eq.'+ean).limit(2);
+                if(error||!data?.length){setPriceLookupError('EAN no encontrado en maestro logístico');return;}
+                if(data.length!==1){setPriceLookupError('EAN asociado a varios artículos');return;}
+                setPriceArticleId(String(data[0].articulo_codigo));
+                setPriceLookupError('EAN encontrado: código interno '+data[0].articulo_codigo+'. La equivalencia con el ID de la API Sigma está pendiente de validar.');
+              }}/>
+              <small>Compatible con lectores HID que envían Enter. Por seguridad, todavía no se consulta automáticamente el precio hasta verificar el mapeo EAN → ID Sigma.</small>
               <label htmlFor="sigma-price-article">Código de artículo Sigma</label>
               <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();document.getElementById("price-search-button")?.click();}}} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
               <button id="price-search-button" type="button" disabled={priceLookupBusy||!/^[0-9]{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
