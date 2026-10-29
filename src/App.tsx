@@ -28,6 +28,40 @@ import { downloadClosurePdf } from './lib/closurePdf';
 import './blind.css';
 import './stock.css';
 
+type BarcodeDetectorLike = {detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue:string}>>};
+type BarcodeDetectorConstructor = new (options:{formats:string[]})=>BarcodeDetectorLike;
+function PriceCameraScanner({videoRef,onDetected,onError}:{videoRef:React.RefObject<HTMLVideoElement|null>;onDetected:(ean:string)=>void;onError:(message:string)=>void}){
+  useEffect(()=>{
+    let cancelled=false;let stream:MediaStream|null=null;let timer:number|undefined;let busy=false;
+    const start=async()=>{
+      try{
+        const Detector=(window as Window & {BarcodeDetector?:BarcodeDetectorConstructor}).BarcodeDetector;
+        if(!Detector){errorRef.current('Este navegador no admite lectura directa de códigos con cámara. Probá Chrome en Android o un scanner Bluetooth.');return;}
+        if(!navigator.mediaDevices?.getUserMedia){errorRef.current('La cámara requiere HTTPS y permiso del navegador.');return;}
+        stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+        if(cancelled){stream.getTracks().forEach(t=>t.stop());return;}
+        const video=videoRef.current;
+        if(!video)return;
+        video.srcObject=stream;await video.play();
+        const detector=new Detector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
+        timer=window.setInterval(async()=>{
+          if(cancelled||busy||video.readyState<2)return;
+          busy=true;
+          try{
+            const results=await detector.detect(video);
+            const code=results.map(r=>r.rawValue).find(v=>/^[0-9]{8,14}$/.test(v));
+            if(code&&!cancelled){cancelled=true;detectedRef.current(code);}
+          }catch{/* Frame sin lectura válida */}
+          finally{busy=false;}
+        },300);
+      }catch(error){if(!cancelled)errorRef.current('No se pudo abrir la cámara: '+(error instanceof Error?error.message:String(error)));}
+    };
+    void start();
+    return()=>{cancelled=true;if(timer!==undefined)window.clearInterval(timer);stream?.getTracks().forEach(t=>t.stop());if(videoRef.current)videoRef.current.srcObject=null;};
+  },[videoRef]);
+  return <small>Apuntá al código de barras. La lectura se realiza automáticamente.</small>;
+}
+
 type ClosureStatus =
   | 'BORRADOR'
   | 'REVISION_SUPERVISOR'
@@ -1693,7 +1727,7 @@ export default function App({ profile, onSignOut }: Props) {
               </div>
               {priceCameraOpen&&<div style={{padding:12,border:'1px solid #cbd5e1',borderRadius:10}}>
                 <video ref={priceVideoRef} playsInline muted autoPlay style={{width:'100%',maxWidth:460,background:'#0f172a',borderRadius:8}}/>
-                <PriceCameraScanner videoRef={priceVideoRef} onDetected={ean=>{const input=document.getElementById('price-scan-input') as HTMLInputElement|null;if(input){input.value=ean;input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));}setPriceCameraOpen(false);setPriceCameraError('Código leído: '+ean+'. Confirmá el artículo antes de consultar el precio.');}} onError={setPriceCameraError}/>
+                <PriceCameraScanner videoRef={priceVideoRef} onDetected={ean=>{const input=document.getElementById('price-scan-input') as HTMLInputElement|null;if(input)input.value=ean;setPriceCameraOpen(false);void (async()=>{if(!supabase)return;const {data,error}=await supabase.from('logistica_articulos').select('articulo_codigo').or('ean_unidad.eq.'+ean+',ean_bulto.eq.'+ean).limit(2);if(error||!data?.length){setPriceLookupError('EAN no encontrado en el maestro logístico');return;}if(data.length!==1){setPriceLookupError('EAN ambiguo');return;}setPriceArticleId(String(data[0].articulo_codigo));setPriceLookupError('EAN leído: '+ean+' · Código interno '+data[0].articulo_codigo+'. Falta validar equivalencia con ID Sigma.');})();}} onError={setPriceCameraError}/>
                 {priceCameraError&&<p role="status" style={{fontSize:13}}>{priceCameraError}</p>}
               </div>}
               <small>Compatible con lectores HID que envían Enter. Por seguridad, todavía no se consulta automáticamente el precio hasta verificar el mapeo EAN → ID Sigma.</small>
