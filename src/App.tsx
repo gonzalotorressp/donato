@@ -14,6 +14,7 @@ import {
   LogOut,
   Plus,
   ReceiptText,
+  Camera,
   RefreshCw,
   ShieldCheck,
   Trash2,
@@ -324,6 +325,9 @@ export default function App({ profile, onSignOut }: Props) {
   const [priceArticleId,setPriceArticleId] = useState('154');
   const [shelfPriceInput,setShelfPriceInput] = useState('');
   const [priceSaving,setPriceSaving] = useState(false);
+  const [priceCameraOpen,setPriceCameraOpen] = useState(false);
+  const [priceCameraError,setPriceCameraError] = useState('');
+  const priceVideoRef=useRef<HTMLVideoElement|null>(null);
   const [priceSaveMessage,setPriceSaveMessage] = useState('');
   const [priceHistory,setPriceHistory] = useState<{id:string;creado_at:string;descripcion:string|null;articulo_id:string;estado:string}[]>([]);
   const [priceCheckStatus,setPriceCheckStatus] = useState<'ok'|'error'|'missing'|null>(null);
@@ -1671,19 +1675,27 @@ export default function App({ profile, onSignOut }: Props) {
           <h1 style={{margin:'4px 0 12px'}}>Control Precios</h1>
           <p>Consultá el artículo, verificá su etiqueta con un toque y revisá las bonificaciones por cantidad.</p>
             <div style={{marginTop:14,display:'grid',gap:8}}>
-              <label htmlFor="price-scan-input">Escáner Bluetooth (EAN)</label>
-              <input id="price-scan-input" autoComplete="off" inputMode="numeric" placeholder="Escaneá el EAN y Enter" style={{maxWidth:360,padding:10,border:'1px solid #cbd5e1',borderRadius:8}} onKeyDown={async e=>{
-                if(e.key!=='Enter')return;
-                e.preventDefault();
-                const ean=e.currentTarget.value.trim();
-                if(!/^[0-9]{8,14}$/.test(ean)){setPriceLookupError('Código EAN inválido');return;}
-                if(!supabase){setPriceLookupError('Supabase no disponible');return;}
-                const {data,error}=await supabase.from('logistica_articulos').select('articulo_codigo').or('ean_unidad.eq.'+ean+',ean_bulto.eq.'+ean).limit(2);
-                if(error||!data?.length){setPriceLookupError('EAN no encontrado en maestro logístico');return;}
-                if(data.length!==1){setPriceLookupError('EAN asociado a varios artículos');return;}
-                setPriceArticleId(String(data[0].articulo_codigo));
-                setPriceLookupError('EAN encontrado: código interno '+data[0].articulo_codigo+'. La equivalencia con el ID de la API Sigma está pendiente de validar.');
-              }}/>
+              <label htmlFor="price-scan-input">Código de barras (scanner o cámara)</label>
+              <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                <input id="price-scan-input" autoComplete="off" inputMode="numeric" placeholder="Escaneá el EAN y Enter" style={{flex:'1 1 180px',minWidth:0,maxWidth:360,padding:10,border:'1px solid #cbd5e1',borderRadius:8}} onKeyDown={async e=>{
+                  if(e.key!=='Enter')return;
+                  e.preventDefault();
+                  const ean=e.currentTarget.value.trim();
+                  if(!/^[0-9]{8,14}$/.test(ean)){setPriceLookupError('Código EAN inválido');return;}
+                  if(!supabase){setPriceLookupError('Supabase no disponible');return;}
+                  const {data,error}=await supabase.from('logistica_articulos').select('articulo_codigo').or('ean_unidad.eq.'+ean+',ean_bulto.eq.'+ean).limit(2);
+                  if(error||!data?.length){setPriceLookupError('EAN no encontrado en maestro logístico');return;}
+                  if(data.length!==1){setPriceLookupError('EAN asociado a varios artículos');return;}
+                  setPriceArticleId(String(data[0].articulo_codigo));
+                  setPriceLookupError('EAN encontrado: código interno '+data[0].articulo_codigo+'. La equivalencia con el ID de la API Sigma está pendiente de validar.');
+                }}/>
+                <button type="button" className="back-button" aria-label={priceCameraOpen?'Cerrar cámara':'Abrir cámara para leer código de barras'} title={priceCameraOpen?'Cerrar cámara':'Leer código con cámara'} onClick={()=>{setPriceCameraError('');setPriceCameraOpen(v=>!v);}} style={{display:'flex',alignItems:'center',gap:6,padding:10}}><Camera size={20}/>{priceCameraOpen?'Cerrar':'Cámara'}</button>
+              </div>
+              {priceCameraOpen&&<div style={{padding:12,border:'1px solid #cbd5e1',borderRadius:10}}>
+                <video ref={priceVideoRef} playsInline muted autoPlay style={{width:'100%',maxWidth:460,background:'#0f172a',borderRadius:8}}/>
+                <PriceCameraScanner videoRef={priceVideoRef} onDetected={ean=>{const input=document.getElementById('price-scan-input') as HTMLInputElement|null;if(input){input.value=ean;input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));}setPriceCameraOpen(false);setPriceCameraError('Código leído: '+ean+'. Confirmá el artículo antes de consultar el precio.');}} onError={setPriceCameraError}/>
+                {priceCameraError&&<p role="status" style={{fontSize:13}}>{priceCameraError}</p>}
+              </div>}
               <small>Compatible con lectores HID que envían Enter. Por seguridad, todavía no se consulta automáticamente el precio hasta verificar el mapeo EAN → ID Sigma.</small>
               <label htmlFor="sigma-price-article">Código de artículo Sigma</label>
               <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();document.getElementById("price-search-button")?.click();}}} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
