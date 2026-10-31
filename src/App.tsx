@@ -3,6 +3,7 @@ import { readApiJson } from './lib/apiJson';
 import { fetchPricePolicies } from './lib/pricePolicies';
 import { PriceStatusButtons } from './components/PriceStatusButtons';
 import { PolicyPriceControl } from './components/PolicyPriceControl';
+import { discountedPolicyPrice } from './lib/discountedPolicyPrice';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -1789,9 +1790,15 @@ export default function App({ profile, onSignOut }: Props) {
                   }catch(error){setPricePolicyNote('No se pudieron consultar políticas: '+(error instanceof Error?error.message:String(error)));}
                   finally{setPriceLookupBusy(false);}
                 }}>Forzar actualización de políticas</button>
-                {priceLookupBusy?<p role="status">Actualizando políticas…</p>:pricePolicyNote.startsWith('No se pudieron consultar políticas:')?<p style={{color:'#92400e'}}>No fue posible verificar las políticas. El precio mostrado es únicamente de lista, sin descuentos.</p>:pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
+                {priceLookupBusy?<p role="status">Actualizando políticas…</p>:pricePolicyNote.startsWith('No se pudieron consultar políticas:')?<p style={{color:'#92400e'}}>No fue posible verificar las políticas. El precio mostrado es únicamente de lista, sin descuentos.</p>:pricePolicies.length?pricePolicies.map(p=>{
+                  const discountedPrice=p.precio==null&&p.descuento!=null?discountedPolicyPrice(Number(priceLookupResult.precioSinIva),Number(p.descuento),priceLookupResult.ivaPorcentual):null;
+                  return <div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
                   <strong>Política #{p.id}</strong> · {p.alcance?.join(' + ')||'Artículo'} · <span style={{color:p.evaluacion==='candidata'?'#166534':'#92400e'}}>{p.evaluacion==='candidata'?'Candidata (no confirmada)':'Requiere validación'}</span>{p.ordenManual!=null?' · Orden manual '+p.ordenManual:''}
                   <br/>{p.descuento!=null?'Descuento '+p.descuento+'%':''}
+                  {p.precio==null&&p.descuento!=null&&<div style={{marginTop:4}}>
+                    <strong>Precio con descuento e IVA: {discountedPrice?.gross==null?'Precio no disponible':discountedPrice.gross.toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</strong>
+                    <div style={{fontSize:12,color:'#64748b'}}>Neto con descuento: {discountedPrice==null?'no disponible':discountedPrice.net.toLocaleString('es-AR',{style:'currency',currency:'ARS'})} · IVA {priceLookupResult.ivaPorcentual==null?'no disponible':priceLookupResult.ivaPorcentual+'%'}</div>
+                  </div>}
                   {p.precio!=null&&<div style={{marginTop:4}}>
                     <strong>Precio fijo con IVA: {priceLookupResult.ivaPorcentual==null?'IVA no disponible':(Math.round((Number(p.precio)*(1+priceLookupResult.ivaPorcentual/100)+Number.EPSILON)*100)/100).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</strong>
                     <div style={{fontSize:12,color:'#64748b'}}>Neto: {Number(p.precio).toLocaleString('es-AR',{style:'currency',currency:'ARS'})} · IVA {priceLookupResult.ivaPorcentual==null?'no disponible':priceLookupResult.ivaPorcentual+'%'}</div>
@@ -1808,14 +1815,14 @@ export default function App({ profile, onSignOut }: Props) {
                     const {error}=await supabase.from('donato_controles_precios').insert({
                       articulo_id:priceLookupResult.id,descripcion:priceLookupResult.descripcion||null,
                       precio_lista_con_iva:priceLookupResult.precioConIva,precio_observado:observedPrice,estado:status,
-                      politica_id:String(p.id),politica_snapshot:{...p,ivaPorcentual:priceLookupResult.ivaPorcentual},
+                      politica_id:String(p.id),politica_snapshot:{...p,ivaPorcentual:priceLookupResult.ivaPorcentual,...(discountedPrice?{precioListaNeto:priceLookupResult.precioSinIva,precioCalculadoNeto:discountedPrice.net,precioCalculadoConIva:discountedPrice.gross}:{})},
                       precio_politica_neto:fixedPrice,precio_politica_con_iva:grossPrice,
                     });
                     if(error)throw error;
                     const {data}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado,politica_id').order('creado_at',{ascending:false}).limit(10);
                     setPriceHistory(data||[]);
                   }}/>
-                </div>):<p>No se encontraron políticas por artículo, proveedor, rubro, grupo o división en la consulta.</p>}
+                </div>;}):<p>No se encontraron políticas por artículo, proveedor, rubro, grupo o división en la consulta.</p>}
                 {pricePolicyNote&&<p style={{fontSize:12,color:'#92400e'}}>{pricePolicyNote}</p>}
               </div>}
 
