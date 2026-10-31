@@ -63,9 +63,14 @@ SIGMA_BASE_URL=https://secure.sig2k.com/sigmasaas/sanpablo@sigma/sigma/api
 El módulo de precios genera etiquetas con descripción, precio final con IVA,
 precio sin IVA, precio por kilo/litro/unidad, contenido de la unidad de venta,
 unidades por caja y código de barras con su número (EAN-8/EAN-13 o UPC-A).
-El formato inicial es 80 × 80 mm y se puede ajustar antes de imprimir o descargar
+El formato inicial es horizontal de 80 × 39 mm, provisorio hasta medir el alto
+útil interior del fleje de Donato. Se ofrecen perfiles de 80 × 34/39/44 mm y
+medidas editables antes de imprimir o descargar
 el PDF. La vista previa y el PDF comparten la misma geometría vectorial; si el
 contenido no entra, se pide un tamaño mayor en lugar de cortar texto o barras.
+No se imprime el número de lista. El EAN ocupa el ancho inferior con sus zonas
+blancas preservadas y barras compactas para el fleje. El cambio de proporciones
+requiere comprobar la etiqueta impresa con el lector real.
 
 El RPC `donato_price_resolve_article` conserva su autorización por aplicación
 y ahora devuelve EAN de unidad, UxB y fecha de sincronización del catálogo.
@@ -158,3 +163,4 @@ Todas las tablas tienen RLS y se validan contra acceso/capacidades de Donato.
 ## Estado actual
 
 La interfaz usa el cierre de Rodrigo del 11/09/2026 como caso visual de validación. La lectura/escritura real en Sigma se conectará mediante una función server-side una vez configuradas las variables de entorno.
+

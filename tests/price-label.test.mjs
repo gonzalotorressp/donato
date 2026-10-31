@@ -117,3 +117,31 @@ test('EAN checksums and guards are validated and unknown package details never b
   assert.deepEqual(details.suggestedLabelContent('PACK 100GR + 200GR'),{quantity:'',unit:'unidad'});
   assert.deepEqual(details.suggestedLabelContent('YERBA 500GR X 10'),{quantity:'500',unit:'g'});
 });
+
+test('shelf-strip default is horizontal, removes list number and doubles usable EAN width', () => {
+  const settings=labels.defaultLabelSettings;
+  assert.deepEqual(settings,{width:80,height:39,copies:1});
+  const built=labels.buildPriceLabel(labels.labelFor(article),settings);
+  assert.ok(Math.abs(built.doc.internal.pageSize.getWidth()-80)<.01);
+  assert.ok(Math.abs(built.doc.internal.pageSize.getHeight()-39)<.01);
+  assert.ok(!built.svg.includes('Lista 4'));
+  assert.ok(built.barcodeBounds.width>60);
+  assert.ok(built.barcodeBounds.x>3&&built.barcodeBounds.x+built.barcodeBounds.width<77);
+  for(const text of ['3.650,00','3.016,53','1.825,00','Unidades por caja: 8','7790895000218']) assert.ok(built.svg.includes(text));
+});
+
+test('compact shelf presets retain offers or reject overflow instead of dropping conditions', () => {
+  assert.doesNotThrow(()=>labels.buildPriceLabel(labels.labelFor(article),{width:80,height:34,copies:1}));
+  const offer=labels.buildPriceLabel(labels.labelFor(article,policy),{width:80,height:39,copies:1});
+  for(const text of ['Desde 8 unidades','25/10/2026','30/11/2026','10093'])assert.ok(offer.svg.includes(text));
+  assert.throws(()=>labels.buildPriceLabel(labels.labelFor(article,policy,'Condiciones adicionales '.repeat(20)),{width:80,height:39,copies:1}),/no entra/);
+  const html=renderToStaticMarkup(createElement(Printer,{article,policies:[policy]}));
+  assert.ok(html.includes('Formato del fleje'));assert.ok(html.includes('alto útil interior'));
+});
+
+test('old square-label preferences do not override the new shelf-strip defaults',()=>{
+  globalThis.localStorage={getItem:key=>key==='donato.price-label.v2'?JSON.stringify({width:80,height:80,copies:1}):null};
+  try{assert.deepEqual(labels.readLabelSettings(),{width:80,height:39,copies:1});}
+  finally{delete globalThis.localStorage;}
+});
+

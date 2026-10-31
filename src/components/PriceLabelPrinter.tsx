@@ -76,6 +76,13 @@ export function PriceLabelPrinter({ article, policies, disabled = false }: { art
         onChange={event => { setConfirmed(event.target.checked); setConfirmedFingerprint(fingerprint); }}/>
         Confirmé que la oferta está vigente y que el cartel incluye todas sus condiciones.</label>
     </>}
+    <label>Formato del fleje
+      <select value={settings.width===80&&[34,39,44].includes(settings.height)?String(settings.height):'custom'} disabled={disabled}
+        onChange={event=>{if(event.target.value==='custom')return;setSettings(current=>({...current,width:80,height:Number(event.target.value)}));setMessage('');}}>
+        <option value="34">80 × 34 mm</option><option value="39">80 × 39 mm · propuesta inicial</option><option value="44">80 × 44 mm</option><option value="custom" disabled>Medidas personalizadas</option>
+      </select>
+    </label>
+    <p className="price-label-help">Medí el alto útil interior del fleje de la góndola. La propuesta de 80 × 39 mm debe ajustarse a esa medida antes de comprar las etiquetas.</p>
     <div className="price-label-settings">
       <label>Ancho (mm)<input type="number" min={40} max={100} step={1} value={settings.width || ''} disabled={disabled} onChange={event => setting('width', event.target.value)}/></label>
       <label>Alto (mm)<input type="number" min={30} max={100} step={1} value={settings.height || ''} disabled={disabled} onChange={event => setting('height', event.target.value)}/></label>
@@ -91,3 +98,4 @@ export function PriceLabelPrinter({ article, policies, disabled = false }: { art
     {message && <p role="status">{message}</p>}
   </section>;
 }
+
