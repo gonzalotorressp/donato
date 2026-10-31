@@ -88,6 +88,19 @@ agrega su ID, snapshot y precio fijo neto/con IVA al registro de control. El
 historial distingue controles del precio de lista y de cada política; la
 selección visual requiere guardar y los registros conservan el RLS por usuario.
 
+## Carteles de oferta sin política vigente
+
+El control de precios permite informar una oferta no vigente con foto obligatoria,
+precio del cartel y observación opcionales. Las fotos se reducen a 1600 px y se
+guardan como JPEG en el bucket privado `donato-ofertas-carteles`. El registro
+`donato_ofertas_reportadas` conserva artículo, autor, precio de lista, evidencia
+de las políticas consultadas y estado pendiente de revisión.
+
+Aplicar `supabase/migrations/20261031174826_donato_expired_offer_reports.sql`.
+RLS permite cargar fotos en la carpeta propia, ver los avisos propios (o revisar
+con capacidades Donato admin/encargado) y limpiar sólo fotos todavía no asociadas
+a un aviso. La pantalla abre las fotos con URLs firmadas por cinco minutos.
+
 ## Base de datos
 
 Migraciones:

@@ -4,6 +4,7 @@ import { fetchPricePolicies } from './lib/pricePolicies';
 import { PriceStatusButtons } from './components/PriceStatusButtons';
 import { PolicyPriceControl } from './components/PolicyPriceControl';
 import { discountedPolicyPrice } from './lib/discountedPolicyPrice';
+import { ExpiredOfferReport, OfferReportHistory } from './components/ExpiredOfferReport';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -372,6 +373,7 @@ export default function App({ profile, onSignOut }: Props) {
   const [priceCameraError,setPriceCameraError] = useState('');
   const priceVideoRef=useRef<HTMLVideoElement|null>(null);
   const [priceSaveMessage,setPriceSaveMessage] = useState('');
+  const [offerHistoryVersion,setOfferHistoryVersion] = useState(0);
   const [priceHistory,setPriceHistory] = useState<{id:string;creado_at:string;descripcion:string|null;articulo_id:string;estado:string;politica_id:string|null}[]>([]);
   const [priceCheckStatus,setPriceCheckStatus] = useState<'ok'|'error'|'missing'|null>(null);
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
@@ -1826,6 +1828,7 @@ export default function App({ profile, onSignOut }: Props) {
                 {pricePolicyNote&&<p style={{fontSize:12,color:'#92400e'}}>{pricePolicyNote}</p>}
               </div>}
 
+              {priceLookupResult&&<ExpiredOfferReport key={priceLookupResult.id} client={supabase} article={priceLookupResult} policies={pricePolicies} policyNote={pricePolicyNote} onSaved={()=>setOfferHistoryVersion(version=>version+1)}/>}
               {priceLookupResult&&<div style={{display:'grid',gap:10,padding:14,border:'1px solid #dce3ec',borderRadius:10}}>
                 {priceCheckStatus==='error'&&<label>Precio observado (opcional)<input value={shelfPriceInput} onChange={e=>setShelfPriceInput(e.target.value)} inputMode="decimal" placeholder="Ej.: 1950,00" style={{display:'block',padding:10,marginTop:5}}/></label>}
                 <button type="button" className="primary-button" disabled={!priceCheckStatus||priceSaving} onClick={async()=>{
@@ -1851,6 +1854,7 @@ export default function App({ profile, onSignOut }: Props) {
                 {priceHistory.map(h=><div key={h.id} style={{padding:'8px 0',fontSize:13,borderBottom:'1px solid #e2e8f0'}}>{new Date(h.creado_at).toLocaleString('es-AR')} · {h.descripcion||h.articulo_id} · {h.politica_id!=null?'Política #'+h.politica_id:'Precio de lista'} · {h.estado==='ok'?'Precio correcto':h.estado==='error'?'Precio incorrecto':'Precio no presente'}</div>)}
               </div>
               {priceLookupError&&<p role="alert" style={{color:'#b91c1c'}}>{priceLookupError}</p>}
+              <OfferReportHistory client={supabase} refreshKey={offerHistoryVersion}/>
             </div>
         </section> : null}
         <div style={{display:stockMode||priceMode?'none':undefined}}>
