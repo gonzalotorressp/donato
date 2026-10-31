@@ -1795,7 +1795,11 @@ export default function App({ profile, onSignOut }: Props) {
                 }}>Forzar actualización de políticas</button>
                 {priceLookupBusy?<p role="status">Actualizando políticas…</p>:pricePolicyNote.startsWith('No se pudieron consultar políticas:')?<p style={{color:'#92400e'}}>No fue posible verificar las políticas. El precio mostrado es únicamente de lista, sin descuentos.</p>:pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
                   <strong>Política #{p.id}</strong> · {p.alcance?.join(' + ')||'Artículo'} · <span style={{color:p.evaluacion==='candidata'?'#166534':'#92400e'}}>{p.evaluacion==='candidata'?'Candidata (no confirmada)':'Requiere validación'}</span>{p.ordenManual!=null?' · Orden manual '+p.ordenManual:''}
-                  <br/>{p.descuento!=null?'Descuento '+p.descuento+'%':''}{p.precio!=null?' · Precio fijo $'+Number(p.precio).toLocaleString('es-AR'):''}
+                  <br/>{p.descuento!=null?'Descuento '+p.descuento+'%':''}
+                  {p.precio!=null&&<div style={{marginTop:4}}>
+                    <strong>Precio fijo con IVA: {priceLookupResult.ivaPorcentual==null?'IVA no disponible':(Math.round((Number(p.precio)*(1+priceLookupResult.ivaPorcentual/100)+Number.EPSILON)*100)/100).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</strong>
+                    <div style={{fontSize:12,color:'#64748b'}}>Neto: {Number(p.precio).toLocaleString('es-AR',{style:'currency',currency:'ARS'})} · IVA {priceLookupResult.ivaPorcentual==null?'no disponible':priceLookupResult.ivaPorcentual+'%'}</div>
+                  </div>}
                   <br/><strong style={{fontSize:13,color:'#334155'}}>{p.cantidadMinima!=null?'A partir de '+p.cantidadMinima+(p.cantidadEnBultos==='S'?' bultos':' unidades'):'Sin mínimo de cantidad informado'}</strong>
                   {p.motivosEvaluacion?.length?<div style={{fontSize:12,color:'#92400e',marginTop:5}}>{p.motivosEvaluacion.join(' · ')}</div>:null}
                   <br/><small>Vigencia: {p.vigenciaDesde||'sin inicio'} a {p.vigenciaHasta||'sin fin'}
