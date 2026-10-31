@@ -66,6 +66,13 @@ artículo conserva empresa 0001, sucursal 0004, lista 4 y excluye políticas de 
 `force=1` fuerza la descarga; un bloqueo de 90 segundos evita exportaciones concurrentes.
 Los errores o descargas incompletas conservan la última versión y liberan el bloqueo.
 
+El contexto del artículo viaja firmado desde la consulta de precio para evitar
+repetir `ExportArticulos`. Si Sigma devuelve 429, se guarda el avance de la
+exportación y su espera indicada (`Retry-After` o `wait Nms`). La API devuelve 202
+y la pantalla reintenta automáticamente desde la página pendiente, sin publicar
+datos parciales. El avance vence a los 10 minutos; el snapshot completo dura 60.
+Aplicar también `supabase/migrations/20261031154725_donato_policy_cache_resume.sql`.
+
 Aplicar `supabase/migrations/20261031144409_donato_policy_cache.sql`. Configurar un
 secreto aleatorio `DONATO_POLICY_CACHE_SECRET` únicamente en el servidor de Vercel
 y su SHA-256 hexadecimal en `donato_private.policy_cache.secret_hash`. No incluir

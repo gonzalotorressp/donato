@@ -1,6 +1,7 @@
 import { requireAuthenticatedUser, userHasApplicationAccess } from '../../server/supabase-auth.js';
 import { getPolicies, sigmaJson } from '../../server/policy-cache.js';
 import { argentinaToday } from '../../server/sigma.js';
+import { readArticleContext } from '../../server/article-context.js';
 
 export const config = { maxDuration: 60 };
 
@@ -16,12 +17,19 @@ export default async function handler(req, res) {
     if (!token) return res.status(503).json({ error: 'Falta configuración de Sigma' });
     if (!process.env.DONATO_POLICY_CACHE_SECRET) return res.status(503).json({ error: 'Falta configuración de caché de políticas' });
     const signal = AbortSignal.timeout(40000);
-    const articleUrl = new URL('https://secure.sig2k.com/sigmasaas/sanpablo@sigma/sigma/api/v10/ExportArticulos');
-    articleUrl.searchParams.set('id', id);
-    const articleRows = await sigmaJson(articleUrl, token, AbortSignal.any([signal, AbortSignal.timeout(12000)]), 'Maestro de artículos');
-    const articulo = articleRows.find(row => String(row.id) === id);
-    if (!articulo) return res.status(404).json({ error: 'Artículo no encontrado' });
     const snapshot = await getPolicies(req, token, String(req.query.force ?? '') === '1', signal);
+    if (snapshot.pending) {
+      res.setHeader('Retry-After', String(snapshot.retryAfter));
+      return res.status(202).json(snapshot);
+    }
+    let articulo = readArticleContext(req.query.context, id);
+    if (!articulo) {
+      const articleUrl = new URL('https://secure.sig2k.com/sigmasaas/sanpablo@sigma/sigma/api/v10/ExportArticulos');
+      articleUrl.searchParams.set('id', id);
+      const articleRows = await sigmaJson(articleUrl, token, AbortSignal.any([signal, AbortSignal.timeout(12000)]), 'Maestro de artículos');
+      articulo = articleRows.find(row => String(row.id) === id);
+    }
+    if (!articulo) return res.status(404).json({ error: 'Artículo no encontrado' });
     const result = [];
   const dimensiones = [
     ['articuloId', id, 'Artículo'],
@@ -75,10 +83,16 @@ export default async function handler(req, res) {
     result.sort((a, b) => (Number(a.ordenManual ?? Infinity) - Number(b.ordenManual ?? Infinity)) || (Number(a.ordenAutomatico ?? Infinity) - Number(b.ordenAutomatico ?? Infinity)));
     return res.status(200).json({ articuloId: id, politicasDirectas: result, politicasEncontradas: result, dimensionesArticulo: Object.fromEntries(dimensiones.map(([campo, valor]) => [campo, valor ?? null])), consultaCompleta: snapshot.complete, fechaEvaluacion: hoy, cacheActualizada: new Date(snapshot.updatedAt).toISOString(), desdeCache: snapshot.cached, nota: 'Evaluación preliminar: candidata no significa aplicable. Incluye coincidencias por artículo, proveedor, rubro, grupo y división, sin cliente. No incluye políticas generales sin restricciones ni otros criterios desconocidos. Las condiciones de cantidad y vigencia requieren validación antes de aplicar un precio.' });
   } catch (error) {
+    if (error.status === 429) {
+      res.setHeader('Retry-After', String(error.retryAfter));
+      return res.status(202).json({ pending: true, retryAfter: error.retryAfter,
+        policiesReady: true,
+        message: 'Sigma solicitó una espera para consultar el artículo. Se reintentará automáticamente' });
+    }
     if (error.status === 503) res.setHeader('Retry-After', '3');
     const message = error.name === 'TimeoutError' || error.name === 'AbortError'
       ? 'La consulta a Sigma demoró demasiado. Volvé a intentar'
       : error instanceof Error ? error.message : 'Error de consulta';
-    return res.status(error.status === 503 ? 503 : 502).json({ error: 'No se pudieron consultar las políticas: ' + message });
+    return res.status(error.status === 503 ? 503 : 502).json({ error: message });
   }
 }

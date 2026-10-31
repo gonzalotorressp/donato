@@ -9,12 +9,16 @@ process.env.VITE_SUPABASE_PUBLISHABLE_KEY = 'test-public';
 process.env.DONATO_POLICY_CACHE_SECRET = 'test-secret';
 process.env.SIGMA_API_TOKEN = 'test-sigma';
 const { default: handler } = await import('../api/sigma/politicas-articulo.js');
+const { default: priceHandler } = await import('../api/sigma/precio.js');
+const { signArticleContext, readArticleContext } = await import('../server/article-context.js');
+const { sigmaRetryAfter } = await import('../server/policy-cache.js');
 const originalFetch = globalThis.fetch;
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status });
 
 function mock({ cached = false, busy = false, upstream = null, access = true, auth = true, batches } = {}) {
   const actions = [];
   const sigmaCalls = [];
+  const articleCalls = [];
   const policies = [
     { id: 1, articuloId: 154, descuento: 10 },
     { id: 2, proveedorCodigo: '0009', descuento: 5, cantidadMinima: 6 },
@@ -34,9 +38,11 @@ function mock({ cached = false, busy = false, upstream = null, access = true, au
         ? { cached: true, complete: true, rows: policies, updatedAt: '2026-10-31T14:00:00Z' }
         : { cached: false, lease: busy ? null : 'lease' });
       if (args.p_action === 'publish') return json({ updatedAt: '2026-10-31T14:00:00Z' });
+      if (args.p_action === 'stage') return json({ retryAfter: args.p_payload.retryAfter });
       return json({});
     }
-    if (url.includes('ExportArticulos')) return json([{ id: 154, proveedorCodigo: 9 }]);
+    if (url.includes('ExportArticulosPrecios')) return json([{ id: 154, precio: 1611.57, moneda: 'ARS' }]);
+    if (url.includes('ExportArticulos')) { articleCalls.push(url); return json([{ id: 154, proveedorCodigo: 9, ivaPorcentual: 21 }]); }
     if (url.includes('ExportPoliticasDescuento')) {
       sigmaCalls.push(url);
       if (upstream) return upstream();
@@ -44,16 +50,16 @@ function mock({ cached = false, busy = false, upstream = null, access = true, au
     }
     throw new Error('Unexpected URL: ' + url);
   };
-  return { actions, sigmaCalls };
+  return { actions, sigmaCalls, articleCalls };
 }
 
-async function request({ force = false, id = '154', method = 'GET' } = {}) {
+async function request({ force = false, id = '154', method = 'GET', context, route = handler } = {}) {
   const response = { headers: {}, statusCode: null, body: null,
     setHeader(key, value) { this.headers[key] = value; },
     status(value) { this.statusCode = value; return this; },
     json(value) { this.body = value; return this; },
   };
-  await handler({ method, query: { id, force: force ? '1' : '' }, headers: { authorization: 'Bearer test' } }, response);
+  await route({ method, query: { id, force: force ? '1' : '', context }, headers: { authorization: 'Bearer test' } }, response);
   return response;
 }
 
@@ -89,17 +95,20 @@ test('forced refresh bypasses a fresh snapshot', async () => {
 test('concurrent refresh gets a retry response without a second export', async () => {
   const state = mock({ busy: true });
   const response = await request();
-  assert.equal(response.statusCode, 503);
+  assert.equal(response.statusCode, 202);
   assert.equal(response.headers['Retry-After'], '3');
   assert.equal(state.sigmaCalls.length, 0);
 });
 
-test('upstream 429 releases lock and does not replace previous snapshot', async () => {
+test('upstream 429 records cooldown without replacing previous snapshot', async () => {
   const state = mock({ upstream: () => new Response('rate limit', { status: 429 }) });
   const response = await request({ force: true });
-  assert.equal(response.statusCode, 502);
-  assert.match(response.body.error, /429/);
-  assert.deepEqual(state.actions.map(a => a.p_action), ['claim', 'release']);
+  assert.equal(response.statusCode, 202);
+  assert.equal(response.body.pending, true);
+  assert.equal(response.body.retryAfter, 31);
+  assert.deepEqual(state.actions.map(a => a.p_action), ['claim', 'stage']);
+  assert.equal(state.actions.at(-1).p_payload.page, 1);
+  assert.deepEqual(state.actions.at(-1).p_payload.rows, []);
 });
 
 test('non-JSON upstream returns a readable JSON error', async () => {
@@ -142,6 +151,109 @@ test('client handles plain-text platform failures without JSON parser details', 
   await assert.rejects(() => readApiJson(new Response('A server error', { status: 500 }), 'No se pudieron consultar políticas'), /HTTP 500/);
   await assert.rejects(() => readApiJson(json({ error: 'Sesión requerida' }, 401), 'Error'), /Sesión requerida/);
   assert.deepEqual(await readApiJson(json({ ok: true }), 'Error'), { ok: true });
+});
+
+test('signed article data avoids the duplicate master lookup', async () => {
+  const state = mock({ cached: true });
+  const context = signArticleContext({ id: 154, proveedorCodigo: 9 });
+  assert.equal((await request({ context })).statusCode, 200);
+  assert.equal(state.articleCalls.length, 0);
+  assert.equal(readArticleContext(context, '155'), null);
+  assert.equal(readArticleContext(context + 'x', '154'), null);
+  assert.equal(readArticleContext('invalid', '154'), null);
+});
+
+test('price -> policy routes consult the article master only once', async () => {
+  const state = mock();
+  const price = await request({ route: priceHandler });
+  assert.equal(price.statusCode, 200);
+  assert.equal(price.body.precioConIva, 1950);
+  assert.ok(price.body.contextoPoliticas);
+  const policies = await request({ context: price.body.contextoPoliticas });
+  assert.equal(policies.statusCode, 200);
+  assert.equal(state.articleCalls.length, 1);
+  assert.equal(policies.body.politicasEncontradas.length, 2);
+});
+
+test('expired article signatures fall back to the master', async () => {
+  const now = Date.now;
+  let context;
+  try { Date.now = () => now() - 11 * 60 * 1000; context = signArticleContext({ id: 154 }); }
+  finally { Date.now = now; }
+  assert.equal(readArticleContext(context, '154'), null);
+  const state = mock({ cached: true });
+  assert.equal((await request({ context })).statusCode, 200);
+  assert.equal(state.articleCalls.length, 1);
+});
+
+test('rate-limit delays respect Retry-After seconds, dates and Sigma milliseconds', () => {
+  assert.equal(sigmaRetryAfter(new Response('', { headers: { 'Retry-After': '2' } }), ''), 3);
+  assert.equal(sigmaRetryAfter(new Response(''), 'Please wait 4120ms'), 5);
+  const now = Date.parse('2026-10-31T15:00:00Z');
+  assert.equal(sigmaRetryAfter(new Response('', { headers: { 'Retry-After': 'Sat, 31 Oct 2026 15:00:05 GMT' } }), '', now), 6);
+});
+
+test('a limited second page resumes at page 2 and keeps page 1', async () => {
+  const firstPage = Array.from({ length: 1000 }, (_, id) => ({ id, articuloId: 154 }));
+  let lease = 'lease-1', stagedRows = [], page = 1, pending = false;
+  let published;
+  const pages = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith('/auth/v1/user')) return json({ id: 'user' });
+    if (url.endsWith('/rpc/has_application_access')) return json(true);
+    if (url.endsWith('/rpc/donato_policy_cache')) {
+      const a = JSON.parse(init.body);
+      if (a.p_action === 'claim') return json({ cached: false, lease, stagedRows, page });
+      if (a.p_action === 'stage') {
+        ({ rows: stagedRows, page } = a.p_payload);
+        pending = true;
+        return json({ retryAfter: 3 });
+      }
+      if (a.p_action === 'publish') { published = a.p_payload; return json({ updatedAt: '2026-10-31T15:00:00Z' }); }
+    }
+    if (url.includes('ExportPoliticasDescuento')) {
+      const requested = new URL(url).searchParams.get('page'); pages.push(requested);
+      if (requested === '1') return json(firstPage);
+      return pending ? json([{ id: 1001, articuloId: 154 }]) : new Response('Please wait 2000ms', { status: 429 });
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
+  const context = signArticleContext({ id: 154 });
+  assert.equal((await request({ context })).statusCode, 202);
+  assert.equal(page, 2);
+  assert.equal(stagedRows.length, 1000);
+  lease = 'lease-2';
+  assert.equal((await request({ context })).statusCode, 200);
+  assert.deepEqual(pages, ['1', '2', '2']);
+  assert.equal(published.length, 1001);
+});
+
+test('browser automatically retries a pending response and retains signed context', async () => {
+  const apiSource = readFileSync(new URL('../src/lib/apiJson.ts', import.meta.url), 'utf8')
+    .replace('response: Response, fallback: string', 'response, fallback');
+  const apiUrl = 'data:text/javascript,' + encodeURIComponent(apiSource);
+  const source = readFileSync(new URL('../src/lib/pricePolicies.ts', import.meta.url), 'utf8')
+    .replace("'./apiJson'", JSON.stringify(apiUrl))
+    .replace(/export async function fetchPricePolicies\([\s\S]*?\) \{/, 'export async function fetchPricePolicies(id, token, context, force, onProgress) {');
+  const helperUrl = 'data:text/javascript,' + encodeURIComponent(source);
+  const { fetchPricePolicies } = await import(helperUrl);
+  const calls = [], progress = [];
+  globalThis.fetch = async input => {
+    calls.push(String(input));
+    return calls.length === 1 ? json({ pending: true, retryAfter: 3, policiesReady: true }, 202) : json({ consultaCompleta: true });
+  };
+  const timeout = globalThis.setTimeout;
+  try {
+    globalThis.setTimeout = fn => { fn(); return 0; };
+    const result = await fetchPricePolicies('154', 'test-token', 'signed-context', true, message => progress.push(message));
+    assert.equal(result.consultaCompleta, true);
+    assert.equal(progress.length, 1);
+    assert.match(progress[0], /Reintento automático/);
+    assert.match(calls[0], /force=1/);
+    assert.doesNotMatch(calls[1], /force=/);
+    assert.match(calls[1], /context=signed-context/);
+  } finally { globalThis.setTimeout = timeout; }
 });
 
 test.after(() => { globalThis.fetch = originalFetch; });

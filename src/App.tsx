@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { readApiJson } from './lib/apiJson';
+import { fetchPricePolicies } from './lib/pricePolicies';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -371,7 +372,7 @@ export default function App({ profile, onSignOut }: Props) {
   const [priceHistory,setPriceHistory] = useState<{id:string;creado_at:string;descripcion:string|null;articulo_id:string;estado:string}[]>([]);
   const [priceCheckStatus,setPriceCheckStatus] = useState<'ok'|'error'|'missing'|null>(null);
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
-  const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string}|null>(null);
+  const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string;contextoPoliticas?:string|null}|null>(null);
   const [priceLookupError,setPriceLookupError] = useState('');
   const [pricePolicies,setPricePolicies] = useState<{id:number;descuento:number|null;precio:number|null;ordenManual:number|null;cantidadMinima:number|null;cantidadMaxima:number|null;vigenciaDesde:string|null;vigenciaHasta:string|null;cantidadEnBultos:string|null;condicionVenta:string|null;evaluacion?:string;motivosEvaluacion?:string[];alcance?:string[]}[]>([]);
   const [pricePolicyNote,setPricePolicyNote] = useState('');
@@ -1748,8 +1749,7 @@ export default function App({ profile, onSignOut }: Props) {
                   const result=await readApiJson(response,'No se pudo consultar el precio');
                   setPriceLookupResult(result);
                   try {
-                    const policiesResponse=await fetch('/api/sigma/politicas-articulo?id='+encodeURIComponent(priceArticleId.trim()),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
-                    const policiesResult=await readApiJson(policiesResponse,'No se pudieron consultar las políticas');
+                    const policiesResult=await fetchPricePolicies(String(result.id),session.access_token,result.contextoPoliticas,false,setPricePolicyNote);
                     setPricePolicies(policiesResult.politicasEncontradas||policiesResult.politicasDirectas||[]);
                     setPricePolicyNote('Última actualización: '+new Date(policiesResult.cacheActualizada).toLocaleString('es-AR')+(policiesResult.desdeCache?' (caché). ':' (actualizada). ')+(policiesResult.nota||'')+(policiesResult.consultaCompleta?'':' Advertencia: consulta parcial, pueden faltar políticas.'));
                   } catch(policyError){setPricePolicyNote('No se pudieron consultar políticas: '+(policyError instanceof Error?policyError.message:String(policyError)));}
@@ -1787,14 +1787,13 @@ export default function App({ profile, onSignOut }: Props) {
                   try{
                     const {data:{session}}=await supabase.auth.getSession();
                     if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
-                    const response=await fetch('/api/sigma/politicas-articulo?id='+encodeURIComponent(priceLookupResult.id)+'&force=1',{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
-                    const data=await readApiJson(response,'No se pudieron actualizar las políticas');
+                    const data=await fetchPricePolicies(String(priceLookupResult.id),session.access_token,priceLookupResult.contextoPoliticas,true,setPricePolicyNote);
                     setPricePolicies(data.politicasEncontradas||[]);
                     setPricePolicyNote('Actualizadas: '+new Date(data.cacheActualizada).toLocaleString('es-AR')+'. '+(data.nota||''));
                   }catch(error){setPricePolicyNote('No se pudieron consultar políticas: '+(error instanceof Error?error.message:String(error)));}
                   finally{setPriceLookupBusy(false);}
                 }}>Forzar actualización de políticas</button>
-                {pricePolicyNote.startsWith('No se pudieron consultar políticas:')?<p style={{color:'#92400e'}}>No fue posible verificar las políticas. El precio mostrado es únicamente de lista, sin descuentos.</p>:pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
+                {priceLookupBusy?<p role="status">Actualizando políticas…</p>:pricePolicyNote.startsWith('No se pudieron consultar políticas:')?<p style={{color:'#92400e'}}>No fue posible verificar las políticas. El precio mostrado es únicamente de lista, sin descuentos.</p>:pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
                   <strong>Política #{p.id}</strong> · {p.alcance?.join(' + ')||'Artículo'} · <span style={{color:p.evaluacion==='candidata'?'#166534':'#92400e'}}>{p.evaluacion==='candidata'?'Candidata (no confirmada)':'Requiere validación'}</span>{p.ordenManual!=null?' · Orden manual '+p.ordenManual:''}
                   <br/>{p.descuento!=null?'Descuento '+p.descuento+'%':''}{p.precio!=null?' · Precio fijo $'+Number(p.precio).toLocaleString('es-AR'):''}
                   <br/><strong style={{fontSize:13,color:'#334155'}}>{p.cantidadMinima!=null?'A partir de '+p.cantidadMinima+(p.cantidadEnBultos==='S'?' bultos':' unidades'):'Sin mínimo de cantidad informado'}</strong>

@@ -1,4 +1,5 @@
 import { requireAuthenticatedUser } from '../../server/supabase-auth.js';
+import { signArticleContext } from '../../server/article-context.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Método no permitido' });
@@ -37,6 +38,7 @@ export default async function handler(req, res) {
       descripcion: article?.descripcion || null, precioSinIva: item.precio, moneda: item.moneda,
       ivaPorcentual: Number.isFinite(iva) ? iva : null, precioConIva,
       articulo: article ? { rubro: article.rubroCodigo ?? null, division: article.divisionCodigo ?? null, grupo: article.grupoCodigo ?? null, proveedor: article.proveedorCodigo ?? null } : null,
+      contextoPoliticas: article ? signArticleContext(article) : null,
       aviso: articleError ? 'No se pudo consultar el IVA del maestro: ' + articleError : null
     });
   } catch (error) {
