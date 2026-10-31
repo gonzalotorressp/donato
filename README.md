@@ -82,6 +82,12 @@ sesión activa con acceso a Donato. No necesita una clave `service_role`.
 `npm test` verifica la sintaxis de todas las APIs y cubre caché, renovación forzada,
 paginación, bloqueo, errores de Sigma y respuestas que no son JSON.
 
+Cada política tiene un control independiente (correcto, incorrecto o no presente).
+La migración `supabase/migrations/20261031160722_donato_policy_price_controls.sql`
+agrega su ID, snapshot y precio fijo neto/con IVA al registro de control. El
+historial distingue controles del precio de lista y de cada política; la
+selección visual requiere guardar y los registros conservan el RLS por usuario.
+
 ## Base de datos
 
 Migraciones:

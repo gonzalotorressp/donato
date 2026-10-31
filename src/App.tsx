@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { readApiJson } from './lib/apiJson';
 import { fetchPricePolicies } from './lib/pricePolicies';
+import { PriceStatusButtons } from './components/PriceStatusButtons';
+import { PolicyPriceControl } from './components/PolicyPriceControl';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -369,7 +371,7 @@ export default function App({ profile, onSignOut }: Props) {
   const [priceCameraError,setPriceCameraError] = useState('');
   const priceVideoRef=useRef<HTMLVideoElement|null>(null);
   const [priceSaveMessage,setPriceSaveMessage] = useState('');
-  const [priceHistory,setPriceHistory] = useState<{id:string;creado_at:string;descripcion:string|null;articulo_id:string;estado:string}[]>([]);
+  const [priceHistory,setPriceHistory] = useState<{id:string;creado_at:string;descripcion:string|null;articulo_id:string;estado:string;politica_id:string|null}[]>([]);
   const [priceCheckStatus,setPriceCheckStatus] = useState<'ok'|'error'|'missing'|null>(null);
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
   const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string;contextoPoliticas?:string|null}|null>(null);
@@ -1766,13 +1768,7 @@ export default function App({ profile, onSignOut }: Props) {
                     <strong style={{fontSize:'clamp(26px, 5vw, 36px)',color:'#0f172a'}}>{priceLookupResult.precioConIva==null?'Sin precio':Number(priceLookupResult.precioConIva).toLocaleString('es-AR',{style:'currency',currency:'ARS'})}</strong>
                     <div style={{fontSize:12,color:'#64748b'}}>Neto: {Number(priceLookupResult.precioSinIva).toLocaleString('es-AR',{style:'currency',currency:'ARS'})} · IVA {priceLookupResult.ivaPorcentual==null?'no disponible':priceLookupResult.ivaPorcentual+'%'}</div>
                   </div>
-                  <div role="group" aria-label="Estado de la etiqueta de góndola" style={{display:'flex',gap:8}}>
-                    {([
-                      {value:'ok' as const,label:'Precio OK',Icon:CheckCircle2,color:'#15803d',bg:'#dcfce7'},
-                      {value:'error' as const,label:'Precio erróneo',Icon:XCircle,color:'#b91c1c',bg:'#fee2e2'},
-                      {value:'missing' as const,label:'Precio no presente',Icon:EyeOff,color:'#a16207',bg:'#fef3c7'}
-                    ]).map(({value,label,Icon,color,bg})=><button key={value} type="button" title={label} aria-label={label} aria-pressed={priceCheckStatus===value} onClick={()=>setPriceCheckStatus(value)} style={{width:54,height:54,display:'grid',placeItems:'center',borderRadius:12,border:priceCheckStatus===value?'3px solid '+color:'1px solid #cbd5e1',background:priceCheckStatus===value?bg:'#fff',color,cursor:'pointer'}}><Icon size={28}/></button>)}
-                  </div>
+                  <PriceStatusButtons label="Estado de la etiqueta de góndola" status={priceCheckStatus} onChange={setPriceCheckStatus} disabled={priceSaving}/>
                 </div>
                 {priceCheckStatus&&<div role="status" style={{marginTop:12,padding:'8px 10px',borderRadius:8,background:priceCheckStatus==='ok'?'#dcfce7':priceCheckStatus==='error'?'#fee2e2':'#fef3c7',color:priceCheckStatus==='ok'?'#166534':priceCheckStatus==='error'?'#991b1b':'#92400e',fontWeight:600}}>
                   {priceCheckStatus==='ok'?'✓ Precio OK':priceCheckStatus==='error'?'✕ Precio erróneo':'— Precio no presente'} · Selección visual, aún no guardada.
@@ -1805,6 +1801,20 @@ export default function App({ profile, onSignOut }: Props) {
                   <br/><small>Vigencia: {p.vigenciaDesde||'sin inicio'} a {p.vigenciaHasta||'sin fin'}
                   {p.cantidadMinima!=null?' · Mínimo '+p.cantidadMinima:''}{p.cantidadMaxima!=null?' · Máximo '+p.cantidadMaxima:''}
                   {p.cantidadEnBultos==='S'?' bultos':''}{p.condicionVenta?' · Condición '+p.condicionVenta:''}</small>
+                  <PolicyPriceControl key={priceLookupResult.id+':'+p.id} policyId={p.id} onSave={async (status,observedPrice)=>{
+                    if(!supabase)throw new Error('Supabase no disponible');
+                    const fixedPrice=p.precio==null?null:Number(p.precio);
+                    const grossPrice=fixedPrice==null||priceLookupResult.ivaPorcentual==null?null:Math.round((fixedPrice*(1+priceLookupResult.ivaPorcentual/100)+Number.EPSILON)*100)/100;
+                    const {error}=await supabase.from('donato_controles_precios').insert({
+                      articulo_id:priceLookupResult.id,descripcion:priceLookupResult.descripcion||null,
+                      precio_lista_con_iva:priceLookupResult.precioConIva,precio_observado:observedPrice,estado:status,
+                      politica_id:String(p.id),politica_snapshot:{...p,ivaPorcentual:priceLookupResult.ivaPorcentual},
+                      precio_politica_neto:fixedPrice,precio_politica_con_iva:grossPrice,
+                    });
+                    if(error)throw error;
+                    const {data}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado,politica_id').order('creado_at',{ascending:false}).limit(10);
+                    setPriceHistory(data||[]);
+                  }}/>
                 </div>):<p>No se encontraron políticas por artículo, proveedor, rubro, grupo o división en la consulta.</p>}
                 {pricePolicyNote&&<p style={{fontSize:12,color:'#92400e'}}>{pricePolicyNote}</p>}
               </div>}
@@ -1821,17 +1831,17 @@ export default function App({ profile, onSignOut }: Props) {
                     if(error)throw error;
                     setPriceSaveMessage('Control guardado');
                     setPriceCheckStatus(null);setShelfPriceInput('');
-                    const {data}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado').order('creado_at',{ascending:false}).limit(10);
+                    const {data}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado,politica_id').order('creado_at',{ascending:false}).limit(10);
                     setPriceHistory(data||[]);
                     document.getElementById('sigma-price-article')?.focus();
                   }catch(error){setPriceSaveMessage('Error al guardar: '+(error instanceof Error?error.message:String(error)));}
                   finally{setPriceSaving(false);}
-                }}>{priceSaving?'Guardando…':'Guardar control'}</button>
+                }}>{priceSaving?'Guardando…':'Guardar control del precio de lista'}</button>
                 {priceSaveMessage&&<p role="status">{priceSaveMessage}</p>}
               </div>}
               <div style={{padding:12,border:'1px solid #dce3ec',borderRadius:10}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}><strong>Mis últimos controles</strong><button type="button" onClick={async()=>{if(!supabase)return;const {data,error}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado').order('creado_at',{ascending:false}).limit(10);if(error)setPriceLookupError(error.message);else setPriceHistory(data||[]);}}>Actualizar</button></div>
-                {priceHistory.map(h=><div key={h.id} style={{padding:'8px 0',fontSize:13,borderBottom:'1px solid #e2e8f0'}}>{new Date(h.creado_at).toLocaleString('es-AR')} · {h.descripcion||h.articulo_id} · {h.estado==='ok'?'Precio OK':h.estado==='error'?'Precio erróneo':'Precio no presente'}</div>)}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}><strong>Mis últimos controles</strong><button type="button" onClick={async()=>{if(!supabase)return;const {data,error}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado,politica_id').order('creado_at',{ascending:false}).limit(10);if(error)setPriceLookupError(error.message);else setPriceHistory(data||[]);}}>Actualizar</button></div>
+                {priceHistory.map(h=><div key={h.id} style={{padding:'8px 0',fontSize:13,borderBottom:'1px solid #e2e8f0'}}>{new Date(h.creado_at).toLocaleString('es-AR')} · {h.descripcion||h.articulo_id} · {h.politica_id!=null?'Política #'+h.politica_id:'Precio de lista'} · {h.estado==='ok'?'Precio correcto':h.estado==='error'?'Precio incorrecto':'Precio no presente'}</div>)}
               </div>
               {priceLookupError&&<p role="alert" style={{color:'#b91c1c'}}>{priceLookupError}</p>}
             </div>
