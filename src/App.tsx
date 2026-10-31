@@ -1752,7 +1752,7 @@ export default function App({ profile, onSignOut }: Props) {
                     const policiesResult=await policiesResponse.json();
                     if(!policiesResponse.ok)throw new Error(policiesResult.error||'Error al consultar políticas');
                     setPricePolicies(policiesResult.politicasEncontradas||policiesResult.politicasDirectas||[]);
-                    setPricePolicyNote((policiesResult.nota||'')+(policiesResult.consultaCompleta?'':' Advertencia: consulta parcial, pueden faltar políticas.'));
+                    setPricePolicyNote('Última actualización: '+new Date(policiesResult.cacheActualizada).toLocaleString('es-AR')+(policiesResult.desdeCache?' (caché). ':' (actualizada). ')+(policiesResult.nota||'')+(policiesResult.consultaCompleta?'':' Advertencia: consulta parcial, pueden faltar políticas.'));
                   } catch(policyError){setPricePolicyNote('No se pudieron consultar políticas: '+(policyError instanceof Error?policyError.message:String(policyError)));}
 
                 } catch(error){setPriceLookupError(error instanceof Error?error.message:String(error));}
@@ -1782,6 +1782,20 @@ export default function App({ profile, onSignOut }: Props) {
               </div>}
               {priceLookupResult&&<div style={{padding:12,border:'1px solid #dce3ec',borderRadius:8}}>
                 <strong>Bonificaciones y políticas relacionadas con el artículo</strong>
+                <button type="button" disabled={priceLookupBusy} style={{marginTop:8,padding:'8px 12px'}} onClick={async()=>{
+                  if(!supabase||!priceLookupResult)return;
+                  setPriceLookupBusy(true);
+                  try{
+                    const {data:{session}}=await supabase.auth.getSession();
+                    if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
+                    const response=await fetch('/api/sigma/politicas-articulo?id='+encodeURIComponent(priceLookupResult.id)+'&force=1',{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
+                    const data=await response.json();
+                    if(!response.ok)throw new Error(data.error||'No se pudo actualizar');
+                    setPricePolicies(data.politicasEncontradas||[]);
+                    setPricePolicyNote('Actualizadas: '+new Date(data.cacheActualizada).toLocaleString('es-AR')+'. '+(data.nota||''));
+                  }catch(error){setPricePolicyNote('No se pudieron consultar políticas: '+(error instanceof Error?error.message:String(error)));}
+                  finally{setPriceLookupBusy(false);}
+                }}>Forzar actualización de políticas</button>
                 {pricePolicyNote.startsWith('No se pudieron consultar políticas:')?<p style={{color:'#92400e'}}>No fue posible verificar las políticas. El precio mostrado es únicamente de lista, sin descuentos.</p>:pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
                   <strong>Política #{p.id}</strong> · {p.alcance?.join(' + ')||'Artículo'} · <span style={{color:p.evaluacion==='candidata'?'#166534':'#92400e'}}>{p.evaluacion==='candidata'?'Candidata (no confirmada)':'Requiere validación'}</span>{p.ordenManual!=null?' · Orden manual '+p.ordenManual:''}
                   <br/>{p.descuento!=null?'Descuento '+p.descuento+'%':''}{p.precio!=null?' · Precio fijo $'+Number(p.precio).toLocaleString('es-AR'):''}
