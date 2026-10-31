@@ -31,6 +31,10 @@ import './stock.css';
 type BarcodeDetectorLike = {detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue:string}>>};
 type BarcodeDetectorConstructor = new (options:{formats:string[]})=>BarcodeDetectorLike;
 function PriceCameraScanner({videoRef,onDetected,onError}:{videoRef:React.RefObject<HTMLVideoElement|null>;onDetected:(ean:string)=>void;onError:(message:string)=>void}){
+  const errorRef=useRef(onError);
+  const detectedRef=useRef(onDetected);
+  errorRef.current=onError;
+  detectedRef.current=onDetected;
   useEffect(()=>{
     let cancelled=false;let stream:MediaStream|null=null;let timer:number|undefined;let busy=false;
     const start=async()=>{
