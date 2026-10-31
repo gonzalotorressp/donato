@@ -1,16 +1,17 @@
 import { requireAuthenticatedUser } from '../../server/supabase-auth.js';
 
-const policyCache = { rows: null, expires: 0, pending: null };
-async function loadPolicyRows(token) {
-  if (policyCache.rows && Date.now() < policyCache.expires) return policyCache.rows;
-  if (policyCache.pending) return policyCache.pending;
-  policyCache.pending = (async () => {
-    const all = [];
+const CACHE_MS = 60 * 60 * 1000;
+const cache = { data: null, updatedAt: 0, pending: null };
+async function getPolicies(token, force) {
+  if (!force && cache.data && Date.now() - cache.updatedAt < CACHE_MS) return { ...cache.data, updatedAt: cache.updatedAt, cached: true };
+  if (cache.pending) return cache.pending;
+  cache.pending = (async () => {
+    const rows = [];
     let complete = false;
-    const policyData = await loadPolicyRows(token);
-    complete = policyData.complete;
+    const snapshot = await getPolicies(token, String(req.query.force ?? '') === '1');
+    complete = snapshot.complete;
     {
-      const rows = policyData.rows;
+      const rows = snapshot.rows;
       for (const p of rows) {
         const restricciones = dimensiones.filter(([campo]) => p[campo] != null && String(p[campo]).trim() !== '');
         if (!restricciones.length) continue;
@@ -45,8 +46,8 @@ async function loadPolicyRows(token) {
       }
     }
     result.sort((a, b) => (Number(a.ordenManual ?? Infinity) - Number(b.ordenManual ?? Infinity)) || (Number(a.ordenAutomatico ?? Infinity) - Number(b.ordenAutomatico ?? Infinity)));
-    return res.status(200).json({ articuloId: id, politicasDirectas: result, politicasEncontradas: result, dimensionesArticulo: Object.fromEntries(dimensiones.map(([campo, valor]) => [campo, valor ?? null])), consultaCompleta: complete, fechaEvaluacion: hoy, nota: 'Evaluación preliminar: candidata no significa aplicable. Incluye coincidencias por artículo, proveedor, rubro, grupo y división, sin cliente. No incluye políticas generales sin restricciones ni otros criterios desconocidos. Las condiciones de cantidad y vigencia requieren validación antes de aplicar un precio.' });
+    return res.status(200).json({ articuloId: id, politicasDirectas: result, politicasEncontradas: result, dimensionesArticulo: Object.fromEntries(dimensiones.map(([campo, valor]) => [campo, valor ?? null])), consultaCompleta: complete, fechaEvaluacion: hoy, cacheActualizada: new Date(snapshot.updatedAt).toISOString(), desdeCache: snapshot.cached, nota: 'Evaluación preliminar: candidata no significa aplicable. Incluye coincidencias por artículo, proveedor, rubro, grupo y división, sin cliente. No incluye políticas generales sin restricciones ni otros criterios desconocidos. Las condiciones de cantidad y vigencia requieren validación antes de aplicar un precio.' });
   } catch (error) {
-    return res.status(error?.status === 429 ? 429 : 502).json({ error: 'No se pudieron consultar las políticas de Sigma: ' + (error instanceof Error ? error.message : String(error)) });
+    return res.status(502).json({ error: 'No se pudieron consultar las políticas de Sigma: ' + (error instanceof Error ? error.message : String(error)) });
   }
 }
