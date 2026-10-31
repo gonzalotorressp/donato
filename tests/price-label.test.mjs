@@ -5,15 +5,17 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { mkdir, writeFile } from 'node:fs/promises';
 
-let labels, Printer;
+let labels, details, Printer;
 test.before(async () => {
   const server = await createServer({ server: { middlewareMode: true, ws: false }, appType: 'custom' });
   try {
     labels = await server.ssrLoadModule('/src/lib/priceLabel.ts');
+    details = await server.ssrLoadModule('/src/lib/retailLabelDetails.ts');
     Printer = (await server.ssrLoadModule('/src/components/PriceLabelPrinter.tsx')).PriceLabelPrinter;
   } finally { await server.close(); }
 });
-const article = { id: '111', descripcion: 'COCA COLA 2000CC RET', precioConIva: 3650, precioSinIva: 3016.53, ivaPorcentual: 21 };
+const article = { id: '111', descripcion: 'COCA COLA 2000CC RET', precioConIva: 3650, precioSinIva: 3016.53, ivaPorcentual: 21,
+  eanUnidad:'7790895000218',unidadesPorBulto:8 };
 const policy = { id: 10093, precio: null, descuento: 5.82, cantidadMinima: 8, cantidadMaxima: 9999,
   cantidadEnBultos: 'N', vigenciaDesde: '2026-10-25T00:00:00', vigenciaHasta: '2026-11-30', condicionVenta: null };
 
@@ -36,20 +38,21 @@ test('missing IVA, missing descriptions, invalid prices and unconverted bulto po
 
 test('PDF has exact physical size, one page per copy and matching safe SVG preview', async () => {
   const offer = labels.labelFor(article, policy);
-  const { doc, svg } = labels.buildPriceLabel(offer, { width: 58, height: 60, copies: 3 });
+  const { doc, svg } = labels.buildPriceLabel(offer, { width: 80, height: 80, copies: 3 });
   assert.equal(doc.getNumberOfPages(), 3);
-  assert.ok(Math.abs(doc.internal.pageSize.getWidth() - 58) < .01);
-  assert.ok(Math.abs(doc.internal.pageSize.getHeight() - 60) < .01);
+  assert.ok(Math.abs(doc.internal.pageSize.getWidth() - 80) < .01);
+  assert.ok(Math.abs(doc.internal.pageSize.getHeight() - 80) < .01);
   assert.ok(svg.includes('3.437,57'));
-  assert.ok(svg.includes('viewBox="0 0 58 60"'));
-  const escaped = labels.buildPriceLabel(labels.labelFor({ ...article, descripcion: '<script>& "COCA"' }), labels.defaultLabelSettings).svg;
+  assert.ok(svg.includes('viewBox="0 0 80 80"'));
+  assert.ok(svg.includes('7790895000218')); assert.ok(svg.includes('Unidades por caja: 8'));
+  const escaped = labels.buildPriceLabel(labels.labelFor({ ...article, descripcion: '<script>& "COCA"' },undefined,'',labels.defaultRetailDetails(article)), labels.defaultLabelSettings).svg;
   assert.ok(!escaped.includes('<script>')); assert.ok(escaped.includes('&lt;script&gt;&amp;'));
   await mkdir('tmp/pdfs', { recursive: true });
   await writeFile('tmp/pdfs/offer-label.pdf', Buffer.from(doc.output('arraybuffer')));
-  const list = labels.buildPriceLabel(labels.labelFor(article), { width: 50, height: 30, copies: 1 });
+  const list = labels.buildPriceLabel(labels.labelFor(article), { width: 58, height: 80, copies: 1 });
   await writeFile('tmp/pdfs/list-label.pdf', Buffer.from(list.doc.output('arraybuffer')));
-  const landscape = labels.buildPriceLabel(offer, { width: 80, height: 50, copies: 1 });
-  assert.ok(Math.abs(landscape.doc.internal.pageSize.getWidth() - 80) < .01);
+  const landscape = labels.buildPriceLabel(offer, { width: 100, height: 80, copies: 1 });
+  assert.ok(Math.abs(landscape.doc.internal.pageSize.getWidth() - 100) < .01);
   await writeFile('tmp/pdfs/wide-label.pdf', Buffer.from(landscape.doc.output('arraybuffer')));
 });
 
@@ -62,14 +65,14 @@ test('invalid dimensions, copies and content overflow are rejected instead of cl
 });
 
 test('system printing contains only labels with no app UI; popup blocking is actionable', () => {
-  const settings = { width:58, height:60, copies:2 };
+  const settings = { width:80, height:80, copies:2 };
   let html = '', printed = false;
   globalThis.window = { open: () => ({ document: {write: value => {html=value;}, close(){}}, focus(){}, print(){printed=true;} }) };
   try {
     labels.printPriceLabel(labels.buildPriceLabel(labels.labelFor(article), settings).svg, settings);
     assert.equal(printed, true);
     assert.equal((html.match(/class="label"/g) || []).length, 2);
-    assert.ok(html.includes('size:58mm 60mm;margin:0'));
+    assert.ok(html.includes('size:80mm 80mm;margin:0'));
     assert.ok(!html.includes('Guardar relevamiento'));
     globalThis.window.open = () => null;
     assert.throws(() => labels.printPriceLabel('<svg/>', settings), /bloqueó/);
@@ -78,9 +81,39 @@ test('system printing contains only labels with no app UI; popup blocking is act
 
 test('printer section starts with list price, editable dimensions and matching buttons', () => {
   const html = renderToStaticMarkup(createElement(Printer, {article,policies:[policy]}));
-  for (const text of ['Imprimir etiqueta', 'Descargar PDF', 'Ancho (mm)', 'Alto (mm)', 'Copias', '10093', '3650']) {
-    if (text !== '3650') assert.ok(html.includes(text));
+  for (const text of ['Imprimir etiqueta', 'Descargar PDF', 'Ancho (mm)', 'Alto (mm)', 'Copias', '10093', 'EAN de la unidad', 'Contenido de la unidad', 'Unidades por caja', 'Verifiqué el EAN']) {
+    assert.ok(html.includes(text));
   }
   assert.ok(html.includes('Vista previa de etiqueta del artículo 111'));
   assert.ok(!html.includes('Guardar control'));
+  assert.equal((html.match(/<button[^>]*disabled=""/g) || []).length, 2);
+});
+
+test('reference price uses the sale contents, with ml/g conversion and independent case quantities', () => {
+  const coca = labels.labelFor(article);
+  assert.equal(coca.referencePrice,1825); assert.equal(coca.referenceUnit,'litro'); assert.equal(coca.netPrice,3016.53);
+  const beer={...article,descripcion:'CERVEZA BOT 361 PET DESC 1000CC X 6',precioConIva:1950,unidadesPorBulto:6};
+  assert.equal(labels.labelFor(beer).referencePrice,1950); // one bottle, not six litres
+  const input=labels.defaultRetailDetails(article);
+  assert.equal(labels.labelFor(article,undefined,'',{...input,quantity:'500',unit:'g'}).referencePrice,7300);
+  assert.equal(labels.labelFor(article,undefined,'',{...input,quantity:'0,5',unit:'kg'}).referencePrice,7300);
+  assert.equal(labels.labelFor(article,undefined,'',{...input,quantity:'12',unit:'unidad'}).referencePrice,304.17);
+  const fixed=labels.labelFor(article,{...policy,precio:1000});
+  assert.equal(fixed.netPrice,1000); assert.equal(fixed.referencePrice,605);
+  const discount=labels.labelFor(article,policy);
+  assert.equal(discount.netPrice,2840.97); assert.equal(discount.referencePrice,1718.79);
+});
+
+test('EAN checksums and guards are validated and unknown package details never become guesses', () => {
+  assert.equal(details.barcodeData('7790895000218').data.length,95);
+  assert.equal(details.barcodeData('96385074').data.length,67);
+  assert.equal(details.barcodeData('036000291452').data.length,95);
+  assert.equal(details.barcodeData('7790895000218').quietLeft,11);
+  assert.throws(()=>details.barcodeData('7790895000219'),/verificador/);
+  assert.throws(()=>details.barcodeData('111'),/EAN/);
+  const input=labels.defaultRetailDetails(article);
+  for(const value of [{...input,ean:''},{...input,unitsPerCase:'0'},{...input,quantity:'0'},{...input,quantity:'-2'},{...input,quantity:'Infinity'}]) assert.throws(()=>labels.labelFor(article,undefined,'',value));
+  assert.deepEqual(details.suggestedLabelContent('PACK X 12'),{quantity:'',unit:'unidad'});
+  assert.deepEqual(details.suggestedLabelContent('PACK 100GR + 200GR'),{quantity:'',unit:'unidad'});
+  assert.deepEqual(details.suggestedLabelContent('YERBA 500GR X 10'),{quantity:'500',unit:'g'});
 });

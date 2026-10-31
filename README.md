@@ -58,6 +58,28 @@ SIGMA_BASE_URL=https://secure.sig2k.com/sigmasaas/sanpablo@sigma/sigma/api
 
 `SIGMA_API_TOKEN` es sólo de servidor y nunca debe exponerse con prefijo `VITE_`.
 
+## Etiquetas de góndola
+
+El módulo de precios genera etiquetas con descripción, precio final con IVA,
+precio sin IVA, precio por kilo/litro/unidad, contenido de la unidad de venta,
+unidades por caja y código de barras con su número (EAN-8/EAN-13 o UPC-A).
+El formato inicial es 80 × 80 mm y se puede ajustar antes de imprimir o descargar
+el PDF. La vista previa y el PDF comparten la misma geometría vectorial; si el
+contenido no entra, se pide un tamaño mayor en lugar de cortar texto o barras.
+
+El RPC `donato_price_resolve_article` conserva su autorización por aplicación
+y ahora devuelve EAN de unidad, UxB y fecha de sincronización del catálogo.
+Aplicar `supabase/migrations/20261031214240_donato_retail_label_metadata.sql`.
+UxB prefiere el maestro Sigma consultado para el precio y usa el catálogo como
+respaldo. No se agregan consultas de exportación a Sigma.
+
+El contenido se sugiere desde la descripción y requiere confirmación visual del
+operador, junto con EAN y unidades por caja. No se toma el peso logístico como
+contenido neto ni se multiplica el contenido por UxB. Los datos faltantes se
+completan para esa etiqueta; estas correcciones no modifican el maestro ERP.
+Para ofertas, el precio sin IVA y el precio por medida corresponden a la misma
+política elegida, cuya vigencia y condiciones también deben confirmarse.
+
 ## Caché de políticas de precios
 
 `/api/sigma/politicas-articulo` comparte una descarga completa de políticas de Sigma

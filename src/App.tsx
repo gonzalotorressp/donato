@@ -4,9 +4,10 @@ import { fetchPricePolicies } from './lib/pricePolicies';
 import { PriceStatusButtons } from './components/PriceStatusButtons';
 import { PolicyPriceControl } from './components/PolicyPriceControl';
 import { PriceLabelPrinter } from './components/PriceLabelPrinter';
+import type { LabelArticle } from './lib/priceLabel';
 import { discountedPolicyPrice } from './lib/discountedPolicyPrice';
 import { ExpiredOfferReport, OfferReportHistory } from './components/ExpiredOfferReport';
-import { resolvePriceArticle } from './lib/resolvePriceArticle';
+import { resolvePriceArticle, loadPriceLabelMetadata } from './lib/resolvePriceArticle';
 import { emptyOfferDraft, savePriceSurvey, surveyControls, type PolicyControlDraft } from './lib/priceSurvey';
 import {
   AlertTriangle,
@@ -387,7 +388,7 @@ export default function App({ profile, onSignOut }: Props) {
   const [priceHistory,setPriceHistory] = useState<{id:string;creado_at:string;descripcion:string|null;articulo_id:string;estado:string;politica_id:string|null}[]>([]);
   const [priceCheckStatus,setPriceCheckStatus] = useState<'ok'|'error'|'missing'|null>(null);
   const [priceLookupBusy,setPriceLookupBusy] = useState(false);
-  const [priceLookupResult,setPriceLookupResult] = useState<{id:string;precioSinIva:number;precioConIva:number|null;ivaPorcentual:number|null;descripcion?:string;aviso?:string;moneda?:string;contextoPoliticas?:string|null}|null>(null);
+  const [priceLookupResult,setPriceLookupResult] = useState<(LabelArticle & {aviso?:string;moneda?:string;contextoPoliticas?:string|null})|null>(null);
   const [priceLookupError,setPriceLookupError] = useState('');
   const [pricePolicies,setPricePolicies] = useState<{id:number;descuento:number|null;precio:number|null;ordenManual:number|null;cantidadMinima:number|null;cantidadMaxima:number|null;vigenciaDesde:string|null;vigenciaHasta:string|null;cantidadEnBultos:string|null;condicionVenta:string|null;evaluacion?:string;motivosEvaluacion?:string[];alcance?:string[]}[]>([]);
   const [pricePolicyNote,setPricePolicyNote] = useState('');
@@ -402,9 +403,12 @@ export default function App({ profile, onSignOut }: Props) {
       const id=await resolvePriceArticle(supabase,input);
       const {data:{session}}=await supabase.auth.getSession();
       if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
-      const response=await fetch('/api/sigma/precio?id='+encodeURIComponent(id),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
+      const [response,labelMetadata]=await Promise.all([
+        fetch('/api/sigma/precio?id='+encodeURIComponent(id),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'}),
+        loadPriceLabelMetadata(supabase,id),
+      ]);
       const result=await readApiJson(response,'No se pudo consultar el precio');
-      setPriceLookupResult(result);
+      setPriceLookupResult({...result,...labelMetadata,unidadesPorBulto:result.unidadesPorBulto??labelMetadata.unidadesPorBulto??null});
       try{
         const policiesResult=await fetchPricePolicies(String(result.id),session.access_token,result.contextoPoliticas,false,setPricePolicyNote);
         setPricePolicies(policiesResult.politicasEncontradas||policiesResult.politicasDirectas||[]);

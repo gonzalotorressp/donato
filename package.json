@@ -13,11 +13,12 @@
   "dependencies": {
     "@supabase/supabase-js": "latest",
     "@vitejs/plugin-react": "latest",
+    "jsbarcode": "3.12.3",
+    "jspdf": "latest",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "vite": "latest",
-    "jspdf": "latest"
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",

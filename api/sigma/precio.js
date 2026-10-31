@@ -37,6 +37,7 @@ export default async function handler(req, res) {
       id, lista: '4', empresa: '0001', sucursal: '0004',
       descripcion: article?.descripcion || null, precioSinIva: item.precio, moneda: item.moneda,
       ivaPorcentual: Number.isFinite(iva) ? iva : null, precioConIva,
+      unidadesPorBulto: Number(article?.unidadesPorBulto) > 0 ? Number(article.unidadesPorBulto) : null,
       articulo: article ? { rubro: article.rubroCodigo ?? null, division: article.divisionCodigo ?? null, grupo: article.grupoCodigo ?? null, proveedor: article.proveedorCodigo ?? null } : null,
       contextoPoliticas: article ? signArticleContext(article) : null,
       aviso: articleError ? 'No se pudo consultar el IVA del maestro: ' + articleError : null

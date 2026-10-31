@@ -67,6 +67,13 @@ test('all server files have valid syntax (Vite does not compile API files)', () 
   for (const path of [...globSync('api/**/*.js'), ...globSync('server/**/*.js')]) execFileSync(process.execPath, ['--check', path]);
 });
 
+test('price endpoint returns case units from the existing master request for retail labels', async () => {
+  const state=mock({article:{id:154,descripcion:'CERVEZA BOT 361 PET DESC 1000CC X 6',ivaPorcentual:21,unidadesPorBulto:6}});
+  const result=await request({route:priceHandler});
+  assert.equal(result.statusCode,200); assert.equal(result.body.unidadesPorBulto,6);
+  assert.equal(state.articleCalls.length,1);
+});
+
 test('cold request persists a complete snapshot and evaluates article/supplier policies', async () => {
   const state = mock();
   const response = await request();

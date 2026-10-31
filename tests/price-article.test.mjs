@@ -2,16 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 
-let resolveArticle;
+let resolveArticle, loadMetadata;
 test.before(async () => {
   const server = await createServer({ server: { middlewareMode: true, ws: false }, appType: 'custom' });
-  try { resolveArticle = (await server.ssrLoadModule('/src/lib/resolvePriceArticle.ts')).resolvePriceArticle; }
+  try { const module=await server.ssrLoadModule('/src/lib/resolvePriceArticle.ts'); resolveArticle=module.resolvePriceArticle;loadMetadata=module.loadPriceLabelMetadata; }
   finally { await server.close(); }
 });
 
 const catalog = [
-  { articulo_codigo: '111', ean_unidad: '7790895000218', ean_bulto: null },
-  { articulo_codigo: '154', ean_unidad: '7798054012980', ean_bulto: '7798054012997' },
+  { articulo_codigo: '111', ean_unidad: '7790895000218', ean_bulto: null, unidades_por_bulto:8, synced_at:'2026-10-03T15:14:16Z' },
+  { articulo_codigo: '154', ean_unidad: '7798054012980', ean_bulto: '7798054012997', unidades_por_bulto:6 },
   { articulo_codigo: '15210410', ean_unidad: null, ean_bulto: null },
 ];
 function clientFor(rows = catalog, fail = false) {
@@ -58,4 +58,12 @@ test('unknown EANs, unavailable catalog and invalid text return useful errors', 
   await assert.rejects(() => resolveArticle(client, '111,ean_unidad.not.is.null'), /código Sigma o EAN válido/);
   assert.equal(calls.length, 1);
   await assert.rejects(() => resolveArticle(clientFor(catalog, true).client, '7790895000218'), /No se pudo resolver/);
+});
+
+test('retail metadata uses the unit EAN, preserves sync age and fails without blocking price lookup', async () => {
+  const {client}=clientFor();
+  assert.deepEqual(await loadMetadata(client,'111'),{eanUnidad:'7790895000218',unidadesPorBulto:8,etiquetaActualizada:'2026-10-03T15:14:16Z'});
+  assert.equal((await loadMetadata(client,'154')).eanUnidad,'7798054012980');
+  assert.ok((await loadMetadata(clientFor(catalog,true).client,'111')).etiquetaAviso);
+  assert.ok((await loadMetadata(client,'999')).etiquetaAviso);
 });

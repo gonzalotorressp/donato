@@ -1,5 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+export async function loadPriceLabelMetadata(client: SupabaseClient, id: string) {
+  try {
+    const { data, error } = await client.rpc('donato_price_resolve_article', { p_codigo: id });
+    const matches = !error && Array.isArray(data) ? data.filter(row => String(row.articulo_codigo) === id) : [];
+    if (matches.length !== 1) return { etiquetaAviso: 'No se pudo consultar el EAN y las unidades por caja. Completalos antes de imprimir.' };
+    const item = matches[0];
+    return { eanUnidad: typeof item.ean_unidad === 'string' ? item.ean_unidad.trim() : null,
+      unidadesPorBulto: Number(item.unidades_por_bulto) > 0 ? Number(item.unidades_por_bulto) : null,
+      etiquetaActualizada: typeof item.synced_at === 'string' ? item.synced_at : null };
+  } catch { return { etiquetaAviso: 'No se pudo consultar el EAN y las unidades por caja. Completalos antes de imprimir.' }; }
+}
+
 export async function resolvePriceArticle(client: SupabaseClient, input: string): Promise<string> {
   const value = input.trim();
   if (!/^\d{1,14}$/.test(value)) throw new Error('Ingresá un código Sigma o EAN válido');

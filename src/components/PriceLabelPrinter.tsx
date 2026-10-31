@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Download, Printer } from 'lucide-react';
-import { buildPriceLabel, labelFor, printPriceLabel, readLabelSettings, rememberLabelSettings, type LabelArticle, type LabelPolicy, type LabelSettings } from '../lib/priceLabel';
+import { buildPriceLabel, defaultRetailDetails, labelFor, printPriceLabel, readLabelSettings, rememberLabelSettings, type LabelArticle, type LabelPolicy, type LabelSettings } from '../lib/priceLabel';
+import type { ContentUnit, RetailLabelDetails } from '../lib/retailLabelDetails';
 
 export function PriceLabelPrinter({ article, policies, disabled = false }: { article: LabelArticle; policies: LabelPolicy[]; disabled?: boolean }) {
   const [settings, setSettings] = useState(readLabelSettings);
@@ -8,17 +9,22 @@ export function PriceLabelPrinter({ article, policies, disabled = false }: { art
   const [confirmed, setConfirmed] = useState(false);
   const [conditions, setConditions] = useState('');
   const [message, setMessage] = useState('');
+  const [details, setDetails] = useState(() => defaultRetailDetails(article));
+  const [detailsConfirmed, setDetailsConfirmed] = useState(false);
   const policy = selection === 'lista' ? undefined : policies.find(item => String(item.id) === selection);
   const built = useMemo(() => {
     try {
       if (selection !== 'lista' && !policy) throw new Error('La política seleccionada ya no está disponible.');
-      return { value: buildPriceLabel(labelFor(article, policy, conditions), settings), error: '' };
+      return { value: buildPriceLabel(labelFor(article, policy, conditions, details), settings), error: '' };
     } catch (error) { return { value: null, error: error instanceof Error ? error.message : 'No se pudo generar la etiqueta.' }; }
-  }, [article, policy, selection, conditions, settings]);
+  }, [article, policy, selection, conditions, settings, details]);
   // Confirmation is tied to the exact policy content, including refreshed conditions.
   const fingerprint = JSON.stringify(policy);
   const [confirmedFingerprint, setConfirmedFingerprint] = useState('');
-  const ready = !disabled && built.value != null && (!policy || (confirmed && confirmedFingerprint === fingerprint));
+  const ready = !disabled && detailsConfirmed && built.value != null && (!policy || (confirmed && confirmedFingerprint === fingerprint));
+  function detail(field: keyof RetailLabelDetails, value: string) {
+    setDetails(current => ({...current, [field]: value})); setDetailsConfirmed(false); setMessage('');
+  }
   function setting(field: keyof LabelSettings, value: string) {
     setSettings(current => ({ ...current, [field]: Number(value) })); setMessage('');
   }
@@ -37,6 +43,23 @@ export function PriceLabelPrinter({ article, policies, disabled = false }: { art
   }
   return <section className="price-label-section" aria-label="Imprimir etiqueta">
     <h2>Imprimir etiqueta</h2>
+    <p className="price-label-help">Etiqueta de góndola: EAN, descripción, precio final, precio sin IVA, unidades por caja y precio por kilo, litro o unidad.</p>
+    {article.etiquetaAviso && <p role="status">{article.etiquetaAviso}</p>}
+    <div className="price-label-details">
+      <label>EAN de la unidad de venta<input inputMode="numeric" autoComplete="off" maxLength={13} value={details.ean} disabled={disabled}
+        onChange={event => detail('ean', event.target.value)} placeholder="EAN del envase, no de la caja"/></label>
+      <label>Unidades por caja<input type="number" min={1} step={1} value={details.unitsPerCase} disabled={disabled}
+        onChange={event => detail('unitsPerCase', event.target.value)}/></label>
+      <label>Contenido de la unidad de venta<input inputMode="decimal" value={details.quantity} disabled={disabled}
+        onChange={event => detail('quantity', event.target.value)} placeholder="Ej.: 2000"/></label>
+      <label>Medida del contenido<select value={details.unit} disabled={disabled} onChange={event => detail('unit', event.target.value as ContentUnit)}>
+        <option value="ml">Mililitros / cc</option><option value="l">Litros</option><option value="g">Gramos</option><option value="kg">Kilos</option><option value="unidad">Unidades</option>
+      </select></label>
+    </div>
+    <p className="price-label-help">El contenido se sugiere desde la descripción. Revisá el envase vendido: el peso logístico y la cantidad de unidades por caja no se usan como contenido neto.</p>
+    {article.etiquetaActualizada && <small className="price-label-help">EAN del catálogo sincronizado: {new Date(article.etiquetaActualizada).toLocaleDateString('es-AR')}.</small>}
+    <label className="price-label-confirm"><input type="checkbox" checked={detailsConfirmed} disabled={disabled} onChange={event => setDetailsConfirmed(event.target.checked)}/>
+      Verifiqué el EAN, las unidades por caja y el contenido de la unidad de venta.</label>
     <label>Precio para la etiqueta
       <select value={selection} disabled={disabled} onChange={event => { setSelection(event.target.value); setConfirmed(false); setConditions(''); setMessage(''); }}>
         <option value="lista">Precio de lista con IVA</option>
