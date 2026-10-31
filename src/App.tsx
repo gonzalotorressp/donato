@@ -3,6 +3,7 @@ import { readApiJson } from './lib/apiJson';
 import { fetchPricePolicies } from './lib/pricePolicies';
 import { PriceStatusButtons } from './components/PriceStatusButtons';
 import { PolicyPriceControl } from './components/PolicyPriceControl';
+import { PriceLabelPrinter } from './components/PriceLabelPrinter';
 import { discountedPolicyPrice } from './lib/discountedPolicyPrice';
 import { ExpiredOfferReport, OfferReportHistory } from './components/ExpiredOfferReport';
 import { resolvePriceArticle } from './lib/resolvePriceArticle';
@@ -1847,6 +1848,8 @@ export default function App({ profile, onSignOut }: Props) {
 
               {priceLookupResult&&<ExpiredOfferReport key={priceLookupResult.id} article={priceLookupResult}
                 value={offerDraft} onChange={setOfferDraft} disabled={priceSaving} onProcessingChange={setOfferPhotoProcessing}/>}
+              {priceLookupResult&&<PriceLabelPrinter key={surveyId} article={priceLookupResult} policies={pricePolicies}
+                disabled={priceLookupBusy||priceSaving}/>}
               {priceLookupResult&&<div style={{display:'grid',gap:10,padding:14,border:'1px solid #dce3ec',borderRadius:10}}>
                 <button type="button" className="primary-button price-save-button"
                   disabled={priceSaving||priceLookupBusy||offerPhotoProcessing||(!priceCheckStatus&&!Object.values(policyDrafts).some(draft=>draft.status)&&!offerDraft.enabled)}
