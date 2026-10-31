@@ -16,12 +16,11 @@ export function PriceStatusButtons({ status, onChange, label, disabled = false }
 }) {
   return <div role="group" aria-label={label} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
     {OPTIONS.map(({ value, label: optionLabel, Icon, color, background }) => <button
-      key={value} type="button" title={optionLabel} aria-label={optionLabel}
+      key={value} type="button" className="price-status-button" title={optionLabel} aria-label={optionLabel}
       aria-pressed={status === value} disabled={disabled} onClick={() => onChange(value)}
       style={{ width: 54, height: 54, display: 'grid', placeItems: 'center', borderRadius: 12,
         border: status === value ? '3px solid ' + color : '1px solid #cbd5e1',
-        background: status === value ? background : '#fff', color,
-        cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.65 : 1 }}>
+        background: status === value ? background : '#fff', color }}>
       <Icon size={28}/>
     </button>)}
   </div>;

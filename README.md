@@ -88,6 +88,14 @@ agrega su ID, snapshot y precio fijo neto/con IVA al registro de control. El
 historial distingue controles del precio de lista y de cada política; la
 selección visual requiere guardar y los registros conservan el RLS por usuario.
 
+Todos los controles de lista/políticas y el aviso de oferta se confirman juntos
+con **Guardar relevamiento**, al final del formulario. Los componentes sólo
+editan borradores; no guardan por separado. Aplicar
+`supabase/migrations/20261031183131_donato_price_survey_batch.sql`.
+El RPC `donato_guardar_relevamiento_precios` crea una cabecera con usuario y hora,
+controles y aviso en una única transacción. El mismo ID permite reintentar sin
+duplicar registros; una foto que quedó vinculada se conserva ante errores de red.
+
 ## Carteles de oferta sin política vigente
 
 El control de precios permite informar una oferta no vigente con foto obligatoria,

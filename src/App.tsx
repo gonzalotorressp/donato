@@ -6,6 +6,7 @@ import { PolicyPriceControl } from './components/PolicyPriceControl';
 import { discountedPolicyPrice } from './lib/discountedPolicyPrice';
 import { ExpiredOfferReport, OfferReportHistory } from './components/ExpiredOfferReport';
 import { resolvePriceArticle } from './lib/resolvePriceArticle';
+import { emptyOfferDraft, savePriceSurvey, surveyControls, type PolicyControlDraft } from './lib/priceSurvey';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -34,6 +35,7 @@ import { supabase } from './lib/supabase';
 import { downloadClosurePdf } from './lib/closurePdf';
 import './blind.css';
 import './stock.css';
+import './prices.css';
 
 type BarcodeDetectorLike = {detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue:string}>>};
 type BarcodeDetectorConstructor = new (options:{formats:string[]})=>BarcodeDetectorLike;
@@ -371,6 +373,11 @@ export default function App({ profile, onSignOut }: Props) {
   const priceLookupRunning=useRef(false);
   const [shelfPriceInput,setShelfPriceInput] = useState('');
   const [priceSaving,setPriceSaving] = useState(false);
+  const priceSaveRunning=useRef(false);
+  const [surveyId,setSurveyId]=useState(()=>crypto.randomUUID());
+  const [policyDrafts,setPolicyDrafts]=useState<Record<string,PolicyControlDraft>>({});
+  const [offerDraft,setOfferDraft]=useState(emptyOfferDraft);
+  const [offerPhotoProcessing,setOfferPhotoProcessing]=useState(false);
   const [priceCameraOpen,setPriceCameraOpen] = useState(false);
   const [priceCameraError,setPriceCameraError] = useState('');
   const priceVideoRef=useRef<HTMLVideoElement|null>(null);
@@ -384,9 +391,10 @@ export default function App({ profile, onSignOut }: Props) {
   const [pricePolicies,setPricePolicies] = useState<{id:number;descuento:number|null;precio:number|null;ordenManual:number|null;cantidadMinima:number|null;cantidadMaxima:number|null;vigenciaDesde:string|null;vigenciaHasta:string|null;cantidadEnBultos:string|null;condicionVenta:string|null;evaluacion?:string;motivosEvaluacion?:string[];alcance?:string[]}[]>([]);
   const [pricePolicyNote,setPricePolicyNote] = useState('');
   async function lookupPrice(input=priceArticleId){
-    if(priceLookupRunning.current||priceLookupBusy)return;
+    if(priceLookupRunning.current||priceLookupBusy||priceSaving)return;
     priceLookupRunning.current=true;
     setPriceCameraOpen(false);
+    setPolicyDrafts({});setOfferDraft(emptyOfferDraft());setOfferPhotoProcessing(false);setSurveyId(crypto.randomUUID());
     setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);setPricePolicies([]);setPricePolicyNote('');setPriceCheckStatus(null);setShelfPriceInput('');setPriceSaveMessage('');
     try{
       if(!supabase)throw new Error('Supabase no disponible');
@@ -403,6 +411,22 @@ export default function App({ profile, onSignOut }: Props) {
       }catch(error){setPricePolicyNote('No se pudieron consultar políticas: '+(error instanceof Error?error.message:String(error)));}
     }catch(error){setPriceLookupError(error instanceof Error?error.message:String(error));}
     finally{priceLookupRunning.current=false;setPriceLookupBusy(false);}
+  }
+  async function saveSurvey(){
+    if(!supabase||!priceLookupResult||priceSaveRunning.current||priceLookupBusy||offerPhotoProcessing)return;
+    priceSaveRunning.current=true;setPriceSaving(true);setPriceSaveMessage('');setPriceCameraOpen(false);
+    try{
+      const controls=surveyControls(priceLookupResult,priceCheckStatus,shelfPriceInput,pricePolicies,policyDrafts);
+      await savePriceSurvey(supabase,{id:surveyId,article:priceLookupResult,controls,offer:offerDraft,policies:pricePolicies,policyNote:pricePolicyNote});
+      setPriceCheckStatus(null);setShelfPriceInput('');setPolicyDrafts({});setOfferDraft(emptyOfferDraft());setSurveyId(crypto.randomUUID());
+      setPriceSaveMessage('Relevamiento guardado');setOfferHistoryVersion(version=>version+1);
+      try{
+        const {data}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado,politica_id').order('creado_at',{ascending:false}).limit(10);
+        if(data)setPriceHistory(data);
+      }catch{/* The completed survey is already saved; history can be refreshed independently. */}
+      document.getElementById('sigma-price-article')?.focus();
+    }catch(error){setPriceSaveMessage('No se pudo confirmar el guardado: '+(error instanceof Error?error.message:String(error)));}
+    finally{priceSaveRunning.current=false;setPriceSaving(false);}
   }
   const [stockSigmaTest,setStockSigmaTest] = useState<{stockFisico:number,deposito:string,capturadoAt:string}|null>(null);
   const [stockSigmaTesting,setStockSigmaTesting] = useState(false);
@@ -1738,7 +1762,7 @@ export default function App({ profile, onSignOut }: Props) {
             </div>
           </>}
         </section> : null}
-        {priceMode ? <section className="panel stock-workspace" style={{padding:'clamp(16px, 4vw, 28px)'}}>
+        {priceMode ? <section className="panel stock-workspace price-workspace" style={{padding:'clamp(16px, 4vw, 28px)'}}>
           <p className="eyebrow">DONATO · EMPRESA 0001 · SUCURSAL 0004</p>
           <h1 style={{margin:'4px 0 12px'}}>Control Precios</h1>
           <p>Consultá el artículo, verificá su etiqueta con un toque y revisá las bonificaciones por cantidad.</p>
@@ -1746,7 +1770,7 @@ export default function App({ profile, onSignOut }: Props) {
               <label htmlFor="sigma-price-article">Código Sigma o EAN</label>
               <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                 <input id="sigma-price-article" autoComplete="off" inputMode="numeric" pattern="[0-9]*" maxLength={14}
-                  value={priceArticleId} readOnly={priceLookupBusy} onChange={event=>setPriceArticleId(event.target.value)}
+                  value={priceArticleId} readOnly={priceLookupBusy||priceSaving} onChange={event=>setPriceArticleId(event.target.value)}
                   onFocus={event=>event.currentTarget.select()} onKeyDown={event=>{
                     if(event.key!=='Enter')return;
                     event.preventDefault();
@@ -1755,14 +1779,14 @@ export default function App({ profile, onSignOut }: Props) {
                     void lookupPrice(value);
                   }}
                   placeholder="Ingresá o escaneá el código" style={{flex:'1 1 180px',minWidth:0,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
-                <button type="button" className="back-button" disabled={priceLookupBusy} aria-label={priceCameraOpen?'Cerrar cámara':'Abrir cámara para leer código de barras'} title={priceCameraOpen?'Cerrar cámara':'Leer código con cámara'} onClick={()=>{setPriceCameraError('');setPriceCameraOpen(value=>!value);}} style={{display:'flex',alignItems:'center',gap:6,padding:10}}><Camera size={20}/>{priceCameraOpen?'Cerrar':'Cámara'}</button>
+                <button type="button" className="back-button" disabled={priceLookupBusy||priceSaving} aria-label={priceCameraOpen?'Cerrar cámara':'Abrir cámara para leer código de barras'} title={priceCameraOpen?'Cerrar cámara':'Leer código con cámara'} onClick={()=>{setPriceCameraError('');setPriceCameraOpen(value=>!value);}}><Camera size={20}/>{priceCameraOpen?'Cerrar':'Cámara'}</button>
               </div>
               {priceCameraOpen&&<div style={{padding:12,border:'1px solid #cbd5e1',borderRadius:10}}>
                 <video ref={priceVideoRef} playsInline muted autoPlay style={{width:'100%',maxWidth:460,background:'#0f172a',borderRadius:8}}/>
                 <PriceCameraScanner videoRef={priceVideoRef} onDetected={ean=>{setPriceArticleId(ean);setPriceCameraOpen(false);void lookupPrice(ean);}} onError={setPriceCameraError}/>
                 {priceCameraError&&<p role="status" style={{fontSize:13}}>{priceCameraError}</p>}
               </div>}
-              <button id="price-search-button" type="button" disabled={priceLookupBusy||!/^[0-9]{1,14}$/.test(priceArticleId.trim())} onClick={()=>void lookupPrice()}>
+              <button id="price-search-button" type="button" disabled={priceLookupBusy||priceSaving||!/^[0-9]{1,14}$/.test(priceArticleId.trim())} onClick={()=>void lookupPrice()}>
                 {priceLookupBusy?'Consultando…':'Consultar precio · lista 4'}
               </button>
               {priceLookupResult&&<div style={{padding:16,border:'1px solid #dce3ec',borderRadius:12,background:'#fff'}}>
@@ -1777,15 +1801,17 @@ export default function App({ profile, onSignOut }: Props) {
                   <PriceStatusButtons label="Estado de la etiqueta de góndola" status={priceCheckStatus} onChange={setPriceCheckStatus} disabled={priceSaving}/>
                 </div>
                 {priceCheckStatus&&<div role="status" style={{marginTop:12,padding:'8px 10px',borderRadius:8,background:priceCheckStatus==='ok'?'#dcfce7':priceCheckStatus==='error'?'#fee2e2':'#fef3c7',color:priceCheckStatus==='ok'?'#166534':priceCheckStatus==='error'?'#991b1b':'#92400e',fontWeight:600}}>
-                  {priceCheckStatus==='ok'?'✓ Precio OK':priceCheckStatus==='error'?'✕ Precio erróneo':'— Precio no presente'} · Selección visual, aún no guardada.
+                  {priceCheckStatus==='ok'?'✓ Precio correcto':priceCheckStatus==='error'?'✕ Precio incorrecto':'— Precio no presente'} · Se guardará con el relevamiento.
                 </div>}
+                {priceCheckStatus==='error'&&<label>Precio de lista observado (opcional)<input value={shelfPriceInput} disabled={priceSaving} onChange={event=>setShelfPriceInput(event.target.value)} inputMode="decimal" placeholder="Ej.: 1950,00" style={{display:'block',padding:10,marginTop:5}}/></label>}
                 {priceLookupResult.aviso&&<p style={{color:'#92400e'}}>{priceLookupResult.aviso}</p>}
               </div>}
               {priceLookupResult&&<div style={{padding:12,border:'1px solid #dce3ec',borderRadius:8}}>
                 <strong>Bonificaciones y políticas relacionadas con el artículo</strong>
-                <button type="button" disabled={priceLookupBusy} style={{marginTop:8,padding:'8px 12px'}} onClick={async()=>{
+                <button type="button" disabled={priceLookupBusy||priceSaving} style={{marginTop:8}} onClick={async()=>{
                   if(!supabase||!priceLookupResult)return;
                   setPriceLookupBusy(true);
+                  setPolicyDrafts({});
                   try{
                     const {data:{session}}=await supabase.auth.getSession();
                     if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
@@ -1813,43 +1839,19 @@ export default function App({ profile, onSignOut }: Props) {
                   <br/><small>Vigencia: {p.vigenciaDesde||'sin inicio'} a {p.vigenciaHasta||'sin fin'}
                   {p.cantidadMinima!=null?' · Mínimo '+p.cantidadMinima:''}{p.cantidadMaxima!=null?' · Máximo '+p.cantidadMaxima:''}
                   {p.cantidadEnBultos==='S'?' bultos':''}{p.condicionVenta?' · Condición '+p.condicionVenta:''}</small>
-                  <PolicyPriceControl key={priceLookupResult.id+':'+p.id} policyId={p.id} onSave={async (status,observedPrice)=>{
-                    if(!supabase)throw new Error('Supabase no disponible');
-                    const fixedPrice=p.precio==null?null:Number(p.precio);
-                    const grossPrice=fixedPrice==null||priceLookupResult.ivaPorcentual==null?null:Math.round((fixedPrice*(1+priceLookupResult.ivaPorcentual/100)+Number.EPSILON)*100)/100;
-                    const {error}=await supabase.from('donato_controles_precios').insert({
-                      articulo_id:priceLookupResult.id,descripcion:priceLookupResult.descripcion||null,
-                      precio_lista_con_iva:priceLookupResult.precioConIva,precio_observado:observedPrice,estado:status,
-                      politica_id:String(p.id),politica_snapshot:{...p,ivaPorcentual:priceLookupResult.ivaPorcentual,...(discountedPrice?{precioListaNeto:priceLookupResult.precioSinIva,precioCalculadoNeto:discountedPrice.net,precioCalculadoConIva:discountedPrice.gross}:{})},
-                      precio_politica_neto:fixedPrice,precio_politica_con_iva:grossPrice,
-                    });
-                    if(error)throw error;
-                    const {data}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado,politica_id').order('creado_at',{ascending:false}).limit(10);
-                    setPriceHistory(data||[]);
-                  }}/>
+                  <PolicyPriceControl policyId={p.id} value={policyDrafts[String(p.id)]||{status:null,observedPrice:''}}
+                    disabled={priceSaving} onChange={draft=>setPolicyDrafts(current=>({...current,[String(p.id)]:draft}))}/>
                 </div>;}):<p>No se encontraron políticas por artículo, proveedor, rubro, grupo o división en la consulta.</p>}
                 {pricePolicyNote&&<p style={{fontSize:12,color:'#92400e'}}>{pricePolicyNote}</p>}
               </div>}
 
-              {priceLookupResult&&<ExpiredOfferReport key={priceLookupResult.id} client={supabase} article={priceLookupResult} policies={pricePolicies} policyNote={pricePolicyNote} onSaved={()=>setOfferHistoryVersion(version=>version+1)}/>}
+              {priceLookupResult&&<ExpiredOfferReport key={priceLookupResult.id} article={priceLookupResult}
+                value={offerDraft} onChange={setOfferDraft} disabled={priceSaving} onProcessingChange={setOfferPhotoProcessing}/>}
               {priceLookupResult&&<div style={{display:'grid',gap:10,padding:14,border:'1px solid #dce3ec',borderRadius:10}}>
-                {priceCheckStatus==='error'&&<label>Precio observado (opcional)<input value={shelfPriceInput} onChange={e=>setShelfPriceInput(e.target.value)} inputMode="decimal" placeholder="Ej.: 1950,00" style={{display:'block',padding:10,marginTop:5}}/></label>}
-                <button type="button" className="primary-button" disabled={!priceCheckStatus||priceSaving} onClick={async()=>{
-                  if(!supabase||!priceCheckStatus||!priceLookupResult)return;
-                  setPriceSaving(true);setPriceSaveMessage('');
-                  try {
-                    const amount=shelfPriceInput.trim().replace(',','.');
-                    if(amount&&!/^\d+(\.\d{1,2})?$/.test(amount))throw new Error('Precio observado inválido');
-                    const {error}=await supabase.from('donato_controles_precios').insert({articulo_id:priceLookupResult.id,descripcion:priceLookupResult.descripcion||null,precio_lista_con_iva:priceLookupResult.precioConIva,precio_observado:amount?Number(amount):null,estado:priceCheckStatus});
-                    if(error)throw error;
-                    setPriceSaveMessage('Control guardado');
-                    setPriceCheckStatus(null);setShelfPriceInput('');
-                    const {data}=await supabase.from('donato_controles_precios').select('id,creado_at,descripcion,articulo_id,estado,politica_id').order('creado_at',{ascending:false}).limit(10);
-                    setPriceHistory(data||[]);
-                    document.getElementById('sigma-price-article')?.focus();
-                  }catch(error){setPriceSaveMessage('Error al guardar: '+(error instanceof Error?error.message:String(error)));}
-                  finally{setPriceSaving(false);}
-                }}>{priceSaving?'Guardando…':'Guardar control del precio de lista'}</button>
+                <button type="button" className="primary-button price-save-button"
+                  disabled={priceSaving||priceLookupBusy||offerPhotoProcessing||(!priceCheckStatus&&!Object.values(policyDrafts).some(draft=>draft.status)&&!offerDraft.enabled)}
+                  onClick={()=>void saveSurvey()}>{priceSaving?'Guardando…':'Guardar relevamiento'}</button>
+                <small>Se guardarán juntos los controles que marcaste y el aviso de oferta con su foto.</small>
                 {priceSaveMessage&&<p role="status">{priceSaveMessage}</p>}
               </div>}
               <div style={{padding:12,border:'1px solid #dce3ec',borderRadius:10}}>

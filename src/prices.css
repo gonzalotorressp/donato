@@ -1,0 +1,27 @@
+.price-workspace button {
+  appearance: none;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #245a9d;
+  border-radius: 12px;
+  background: #245a9d;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background .15s, opacity .15s;
+}
+.price-workspace button:hover:not(:disabled) { background: #19477f; transform: none; }
+.price-workspace button:focus-visible { outline: 3px solid #8eafd9; outline-offset: 2px; }
+.price-workspace button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+.price-workspace .back-button { margin: 0; }
+.price-workspace .price-save-button { width: 100%; }
+.price-workspace button.primary-button { border: 1px solid #245a9d; border-radius: 12px; box-shadow: none; }
+.price-workspace .price-status-button { flex: 0 0 54px; padding: 10px; }
