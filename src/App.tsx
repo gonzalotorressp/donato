@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { readApiJson } from './lib/apiJson';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -1744,13 +1745,11 @@ export default function App({ profile, onSignOut }: Props) {
                   const {data:{session}}=await supabase.auth.getSession();
                   if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
                   const response=await fetch('/api/sigma/precio?id='+encodeURIComponent(priceArticleId.trim()),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
-                  const result=await response.json();
-                  if(!response.ok)throw new Error(result.error||'No se pudo consultar Sigma');
+                  const result=await readApiJson(response,'No se pudo consultar el precio');
                   setPriceLookupResult(result);
                   try {
                     const policiesResponse=await fetch('/api/sigma/politicas-articulo?id='+encodeURIComponent(priceArticleId.trim()),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
-                    const policiesResult=await policiesResponse.json();
-                    if(!policiesResponse.ok)throw new Error(policiesResult.error||'Error al consultar políticas');
+                    const policiesResult=await readApiJson(policiesResponse,'No se pudieron consultar las políticas');
                     setPricePolicies(policiesResult.politicasEncontradas||policiesResult.politicasDirectas||[]);
                     setPricePolicyNote('Última actualización: '+new Date(policiesResult.cacheActualizada).toLocaleString('es-AR')+(policiesResult.desdeCache?' (caché). ':' (actualizada). ')+(policiesResult.nota||'')+(policiesResult.consultaCompleta?'':' Advertencia: consulta parcial, pueden faltar políticas.'));
                   } catch(policyError){setPricePolicyNote('No se pudieron consultar políticas: '+(policyError instanceof Error?policyError.message:String(policyError)));}
@@ -1789,8 +1788,7 @@ export default function App({ profile, onSignOut }: Props) {
                     const {data:{session}}=await supabase.auth.getSession();
                     if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
                     const response=await fetch('/api/sigma/politicas-articulo?id='+encodeURIComponent(priceLookupResult.id)+'&force=1',{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
-                    const data=await response.json();
-                    if(!response.ok)throw new Error(data.error||'No se pudo actualizar');
+                    const data=await readApiJson(response,'No se pudieron actualizar las políticas');
                     setPricePolicies(data.politicasEncontradas||[]);
                     setPricePolicyNote('Actualizadas: '+new Date(data.cacheActualizada).toLocaleString('es-AR')+'. '+(data.nota||''));
                   }catch(error){setPricePolicyNote('No se pudieron consultar políticas: '+(error instanceof Error?error.message:String(error)));}

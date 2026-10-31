@@ -177,3 +177,15 @@ export async function userHasCapability(request, capabilityCode) {
   if (!response.ok) return false;
   return (await response.json()) === true;
 }
+
+export async function userHasApplicationAccess(request, applicationCode) {
+  const headers = apiHeaders(request, { 'content-type': 'application/json' });
+  if (!headers) return false;
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/has_application_access`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ application_code: applicationCode }),
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) return false;
+  return (await response.json()) === true;
+}

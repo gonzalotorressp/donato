@@ -58,6 +58,23 @@ SIGMA_BASE_URL=https://secure.sig2k.com/sigmasaas/sanpablo@sigma/sigma/api
 
 `SIGMA_API_TOKEN` es sólo de servidor y nunca debe exponerse con prefijo `VITE_`.
 
+## Caché de políticas de precios
+
+`/api/sigma/politicas-articulo` comparte una descarga completa de políticas de Sigma
+durante 60 minutos en Supabase (`donato_private.policy_cache`). La evaluación por
+artículo conserva empresa 0001, sucursal 0004, lista 4 y excluye políticas de clientes.
+`force=1` fuerza la descarga; un bloqueo de 90 segundos evita exportaciones concurrentes.
+Los errores o descargas incompletas conservan la última versión y liberan el bloqueo.
+
+Aplicar `supabase/migrations/20261031144409_donato_policy_cache.sql`. Configurar un
+secreto aleatorio `DONATO_POLICY_CACHE_SECRET` únicamente en el servidor de Vercel
+y su SHA-256 hexadecimal en `donato_private.policy_cache.secret_hash`. No incluir
+el valor en el repositorio ni usar un prefijo `VITE_`. El RPC requiere además una
+sesión activa con acceso a Donato. No necesita una clave `service_role`.
+
+`npm test` verifica la sintaxis de todas las APIs y cubre caché, renovación forzada,
+paginación, bloqueo, errores de Sigma y respuestas que no son JSON.
+
 ## Base de datos
 
 Migraciones:
