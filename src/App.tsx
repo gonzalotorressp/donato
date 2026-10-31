@@ -1782,7 +1782,7 @@ export default function App({ profile, onSignOut }: Props) {
               </div>}
               {priceLookupResult&&<div style={{padding:12,border:'1px solid #dce3ec',borderRadius:8}}>
                 <strong>Bonificaciones y políticas relacionadas con el artículo</strong>
-                {pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
+                {pricePolicyNote.startsWith('No se pudieron consultar políticas:')?<p style={{color:'#92400e'}}>No fue posible verificar las políticas. El precio mostrado es únicamente de lista, sin descuentos.</p>:pricePolicies.length?pricePolicies.map(p=><div key={p.id} style={{marginTop:10,padding:10,background:'#f8fafc',borderRadius:6}}>
                   <strong>Política #{p.id}</strong> · {p.alcance?.join(' + ')||'Artículo'} · <span style={{color:p.evaluacion==='candidata'?'#166534':'#92400e'}}>{p.evaluacion==='candidata'?'Candidata (no confirmada)':'Requiere validación'}</span>{p.ordenManual!=null?' · Orden manual '+p.ordenManual:''}
                   <br/>{p.descuento!=null?'Descuento '+p.descuento+'%':''}{p.precio!=null?' · Precio fijo $'+Number(p.precio).toLocaleString('es-AR'):''}
                   <br/><strong style={{fontSize:13,color:'#334155'}}>{p.cantidadMinima!=null?'A partir de '+p.cantidadMinima+(p.cantidadEnBultos==='S'?' bultos':' unidades'):'Sin mínimo de cantidad informado'}</strong>
