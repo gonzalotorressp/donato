@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     articulo = Array.isArray(rows) ? rows.find(row => String(row.id) === id) : null;
     if (!articulo) throw new Error('Artículo no encontrado');
   } catch (error) {
-    return res.status(502).json({ error: 'No se pudo consultar el maestro del artículo para evaluar políticas', detalle: error.message });
+    return res.status(502).json({ error: 'No se pudo consultar el maestro del artículo para evaluar políticas: ' + (error instanceof Error ? error.message : String(error)) });
   }
   const dimensiones = [
     ['articuloId', id, 'Artículo'],
@@ -84,6 +84,6 @@ export default async function handler(req, res) {
     result.sort((a, b) => (Number(a.ordenManual ?? Infinity) - Number(b.ordenManual ?? Infinity)) || (Number(a.ordenAutomatico ?? Infinity) - Number(b.ordenAutomatico ?? Infinity)));
     return res.status(200).json({ articuloId: id, politicasDirectas: result, politicasEncontradas: result, dimensionesArticulo: Object.fromEntries(dimensiones.map(([campo, valor]) => [campo, valor ?? null])), consultaCompleta: complete, fechaEvaluacion: hoy, nota: 'Evaluación preliminar: candidata no significa aplicable. Incluye coincidencias por artículo, proveedor, rubro, grupo y división, sin cliente. No incluye políticas generales sin restricciones ni otros criterios desconocidos. Las condiciones de cantidad y vigencia requieren validación antes de aplicar un precio.' });
   } catch (error) {
-    return res.status(502).json({ error: 'No se pudieron consultar las políticas de Sigma', detalle: error.message });
+    return res.status(502).json({ error: 'No se pudieron consultar las políticas de Sigma: ' + (error instanceof Error ? error.message : String(error)) });
   }
 }
