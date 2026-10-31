@@ -9,6 +9,12 @@ export default async function handler(req, res) {
   const token = process.env.SIGMA_API_TOKEN;
   if (!token) return res.status(503).json({ error: 'Falta configuración de Sigma' });
   const result = [];
+  const hoy = new Date().toISOString().slice(0, 10);
+  const fecha = value => {
+    if (value == null || value === '') return null;
+    const match = String(value).match(/^(\\d{4}-\\d{2}-\\d{2})/);
+    return match ? match[1] : null;
+  };
   let complete = false;
   try {
     for (let page = 1; page <= 10; page++) {
@@ -26,7 +32,18 @@ export default async function handler(req, res) {
         if (p.listaPrecio != null && String(p.listaPrecio) !== '4') continue;
         if (p.empresa != null && String(p.empresa).padStart(4, '0') !== '0001') continue;
         if (p.sucursal != null && String(p.sucursal).padStart(4, '0') !== '0004') continue;
+        const desde = fecha(p.vigenciaDesde);
+        const hasta = fecha(p.vigenciaHasta);
+        const motivos = [];
+        if (p.vigenciaDesde && !desde || p.vigenciaHasta && !hasta) motivos.push('Formato de vigencia sin validar');
+        if (desde && desde > hoy) motivos.push('Todavía no vigente');
+        if (hasta && hasta < hoy) motivos.push('Vencida');
+        if (p.cantidadMinima != null || p.cantidadMaxima != null || String(p.cantidadEnBultos ?? 'N').toUpperCase() === 'S' || String(p.politicaPorBulto ?? 'N').toUpperCase() === 'S') motivos.push('Requiere validar cantidad y bultos');
+        if (p.condicionVenta != null || p.dia != null) motivos.push('Requiere validar condición de venta o día');
+        if (p.descuento == null && p.precio == null) motivos.push('Sin descuento ni precio fijo');
         result.push({
+          evaluacion: motivos.length ? 'requiere_validacion' : 'candidata',
+          motivosEvaluacion: motivos,
           id: p.id, descuento: p.descuento, precio: p.precio,
           ordenManual: p.ordenManual, ordenAutomatico: p.ordenAutomatico,
           cantidadMinima: p.cantidadMinima, cantidadMaxima: p.cantidadMaxima,
@@ -38,7 +55,7 @@ export default async function handler(req, res) {
       if (rows.length < 1000) { complete = true; break; }
     }
     result.sort((a, b) => (Number(a.ordenManual ?? Infinity) - Number(b.ordenManual ?? Infinity)) || (Number(a.ordenAutomatico ?? Infinity) - Number(b.ordenAutomatico ?? Infinity)));
-    return res.status(200).json({ articuloId: id, politicasDirectas: result, consultaCompleta: complete, nota: 'Solo políticas específicas del artículo, sin cliente. No incluye políticas por rubro, grupo, división o proveedor. Las condiciones de cantidad y vigencia requieren validación antes de aplicar un precio.' });
+    return res.status(200).json({ articuloId: id, politicasDirectas: result, consultaCompleta: complete, fechaEvaluacion: hoy, nota: 'Evaluación preliminar: candidata no significa aplicable. Solo políticas específicas del artículo, sin cliente. No incluye políticas por rubro, grupo, división o proveedor. Las condiciones de cantidad y vigencia requieren validación antes de aplicar un precio.' });
   } catch (error) {
     return res.status(502).json({ error: 'No se pudieron consultar las políticas de Sigma', detalle: error.message });
   }
