@@ -103,6 +103,12 @@ a un aviso. La pantalla abre las fotos con URLs firmadas por cinco minutos.
 
 ## Base de datos
 
+El buscador de precios usa un único campo vacío para código Sigma o EAN. Los EAN
+de unidad/bulto se resuelven al código de artículo mediante el RPC
+`donato_price_resolve_article`, restringido a usuarios activos de Donato sin abrir
+permisos del módulo logístico. Aplicar
+`supabase/migrations/20261031180853_donato_price_article_lookup.sql`.
+
 Migraciones:
 
 - `supabase/migrations/202609140001_cierre_caja_base.sql`

@@ -5,6 +5,7 @@ import { PriceStatusButtons } from './components/PriceStatusButtons';
 import { PolicyPriceControl } from './components/PolicyPriceControl';
 import { discountedPolicyPrice } from './lib/discountedPolicyPrice';
 import { ExpiredOfferReport, OfferReportHistory } from './components/ExpiredOfferReport';
+import { resolvePriceArticle } from './lib/resolvePriceArticle';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -366,7 +367,8 @@ export default function App({ profile, onSignOut }: Props) {
   const [stockTitle,setStockTitle] = useState('');
   const [stockError,setStockError] = useState('');
   const [stockBusy,setStockBusy] = useState(false);
-  const [priceArticleId,setPriceArticleId] = useState('154');
+  const [priceArticleId,setPriceArticleId] = useState('');
+  const priceLookupRunning=useRef(false);
   const [shelfPriceInput,setShelfPriceInput] = useState('');
   const [priceSaving,setPriceSaving] = useState(false);
   const [priceCameraOpen,setPriceCameraOpen] = useState(false);
@@ -381,6 +383,27 @@ export default function App({ profile, onSignOut }: Props) {
   const [priceLookupError,setPriceLookupError] = useState('');
   const [pricePolicies,setPricePolicies] = useState<{id:number;descuento:number|null;precio:number|null;ordenManual:number|null;cantidadMinima:number|null;cantidadMaxima:number|null;vigenciaDesde:string|null;vigenciaHasta:string|null;cantidadEnBultos:string|null;condicionVenta:string|null;evaluacion?:string;motivosEvaluacion?:string[];alcance?:string[]}[]>([]);
   const [pricePolicyNote,setPricePolicyNote] = useState('');
+  async function lookupPrice(input=priceArticleId){
+    if(priceLookupRunning.current||priceLookupBusy)return;
+    priceLookupRunning.current=true;
+    setPriceCameraOpen(false);
+    setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);setPricePolicies([]);setPricePolicyNote('');setPriceCheckStatus(null);setShelfPriceInput('');setPriceSaveMessage('');
+    try{
+      if(!supabase)throw new Error('Supabase no disponible');
+      const id=await resolvePriceArticle(supabase,input);
+      const {data:{session}}=await supabase.auth.getSession();
+      if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
+      const response=await fetch('/api/sigma/precio?id='+encodeURIComponent(id),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
+      const result=await readApiJson(response,'No se pudo consultar el precio');
+      setPriceLookupResult(result);
+      try{
+        const policiesResult=await fetchPricePolicies(String(result.id),session.access_token,result.contextoPoliticas,false,setPricePolicyNote);
+        setPricePolicies(policiesResult.politicasEncontradas||policiesResult.politicasDirectas||[]);
+        setPricePolicyNote('Última actualización: '+new Date(policiesResult.cacheActualizada).toLocaleString('es-AR')+(policiesResult.desdeCache?' (caché). ':' (actualizada). ')+(policiesResult.nota||'')+(policiesResult.consultaCompleta?'':' Advertencia: consulta parcial, pueden faltar políticas.'));
+      }catch(error){setPricePolicyNote('No se pudieron consultar políticas: '+(error instanceof Error?error.message:String(error)));}
+    }catch(error){setPriceLookupError(error instanceof Error?error.message:String(error));}
+    finally{priceLookupRunning.current=false;setPriceLookupBusy(false);}
+  }
   const [stockSigmaTest,setStockSigmaTest] = useState<{stockFisico:number,deposito:string,capturadoAt:string}|null>(null);
   const [stockSigmaTesting,setStockSigmaTesting] = useState(false);
   async function stockTestSigma(){
@@ -1720,48 +1743,28 @@ export default function App({ profile, onSignOut }: Props) {
           <h1 style={{margin:'4px 0 12px'}}>Control Precios</h1>
           <p>Consultá el artículo, verificá su etiqueta con un toque y revisá las bonificaciones por cantidad.</p>
             <div style={{marginTop:14,display:'grid',gap:8}}>
-              <label htmlFor="price-scan-input">Código de barras (scanner o cámara)</label>
+              <label htmlFor="sigma-price-article">Código Sigma o EAN</label>
               <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-                <input id="price-scan-input" autoComplete="off" inputMode="numeric" placeholder="Escaneá el EAN y Enter" style={{flex:'1 1 180px',minWidth:0,maxWidth:360,padding:10,border:'1px solid #cbd5e1',borderRadius:8}} onKeyDown={async e=>{
-                  if(e.key!=='Enter')return;
-                  e.preventDefault();
-                  const ean=e.currentTarget.value.trim();
-                  if(!/^[0-9]{8,14}$/.test(ean)){setPriceLookupError('Código EAN inválido');return;}
-                  if(!supabase){setPriceLookupError('Supabase no disponible');return;}
-                  const {data,error}=await supabase.from('logistica_articulos').select('articulo_codigo').or('ean_unidad.eq.'+ean+',ean_bulto.eq.'+ean).limit(2);
-                  if(error||!data?.length){setPriceLookupError('EAN no encontrado en maestro logístico');return;}
-                  if(data.length!==1){setPriceLookupError('EAN asociado a varios artículos');return;}
-                  setPriceArticleId(String(data[0].articulo_codigo));
-                  setPriceLookupError('EAN encontrado: código interno '+data[0].articulo_codigo+'. La equivalencia con el ID de la API Sigma está pendiente de validar.');
-                }}/>
-                <button type="button" className="back-button" aria-label={priceCameraOpen?'Cerrar cámara':'Abrir cámara para leer código de barras'} title={priceCameraOpen?'Cerrar cámara':'Leer código con cámara'} onClick={()=>{setPriceCameraError('');setPriceCameraOpen(v=>!v);}} style={{display:'flex',alignItems:'center',gap:6,padding:10}}><Camera size={20}/>{priceCameraOpen?'Cerrar':'Cámara'}</button>
+                <input id="sigma-price-article" autoComplete="off" inputMode="numeric" pattern="[0-9]*" maxLength={14}
+                  value={priceArticleId} readOnly={priceLookupBusy} onChange={event=>setPriceArticleId(event.target.value)}
+                  onFocus={event=>event.currentTarget.select()} onKeyDown={event=>{
+                    if(event.key!=='Enter')return;
+                    event.preventDefault();
+                    const value=event.currentTarget.value;
+                    event.currentTarget.select();
+                    void lookupPrice(value);
+                  }}
+                  placeholder="Ingresá o escaneá el código" style={{flex:'1 1 180px',minWidth:0,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
+                <button type="button" className="back-button" disabled={priceLookupBusy} aria-label={priceCameraOpen?'Cerrar cámara':'Abrir cámara para leer código de barras'} title={priceCameraOpen?'Cerrar cámara':'Leer código con cámara'} onClick={()=>{setPriceCameraError('');setPriceCameraOpen(value=>!value);}} style={{display:'flex',alignItems:'center',gap:6,padding:10}}><Camera size={20}/>{priceCameraOpen?'Cerrar':'Cámara'}</button>
               </div>
               {priceCameraOpen&&<div style={{padding:12,border:'1px solid #cbd5e1',borderRadius:10}}>
                 <video ref={priceVideoRef} playsInline muted autoPlay style={{width:'100%',maxWidth:460,background:'#0f172a',borderRadius:8}}/>
-                <PriceCameraScanner videoRef={priceVideoRef} onDetected={ean=>{const input=document.getElementById('price-scan-input') as HTMLInputElement|null;if(input)input.value=ean;setPriceCameraOpen(false);void (async()=>{if(!supabase)return;const {data,error}=await supabase.from('logistica_articulos').select('articulo_codigo').or('ean_unidad.eq.'+ean+',ean_bulto.eq.'+ean).limit(2);if(error||!data?.length){setPriceLookupError('EAN no encontrado en el maestro logístico');return;}if(data.length!==1){setPriceLookupError('EAN ambiguo');return;}setPriceArticleId(String(data[0].articulo_codigo));setPriceLookupError('EAN leído: '+ean+' · Código interno '+data[0].articulo_codigo+'. Falta validar equivalencia con ID Sigma.');})();}} onError={setPriceCameraError}/>
+                <PriceCameraScanner videoRef={priceVideoRef} onDetected={ean=>{setPriceArticleId(ean);setPriceCameraOpen(false);void lookupPrice(ean);}} onError={setPriceCameraError}/>
                 {priceCameraError&&<p role="status" style={{fontSize:13}}>{priceCameraError}</p>}
               </div>}
-              <small>Compatible con lectores HID que envían Enter. Por seguridad, todavía no se consulta automáticamente el precio hasta verificar el mapeo EAN → ID Sigma.</small>
-              <label htmlFor="sigma-price-article">Código de artículo Sigma</label>
-              <input id="sigma-price-article" inputMode="numeric" pattern="[0-9]*" value={priceArticleId} onChange={event=>setPriceArticleId(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();document.getElementById("price-search-button")?.click();}}} placeholder="Ej.: 154" style={{maxWidth:240,padding:10,border:'1px solid #cbd5e1',borderRadius:8}}/>
-              <button id="price-search-button" type="button" disabled={priceLookupBusy||!/^[0-9]{1,12}$/.test(priceArticleId.trim())} onClick={async()=>{
-                setPriceLookupBusy(true);setPriceLookupError('');setPriceLookupResult(null);setPricePolicies([]);setPricePolicyNote('');setPriceCheckStatus(null);
-                try {
-                  if(!supabase)throw new Error('Supabase no disponible');
-                  const {data:{session}}=await supabase.auth.getSession();
-                  if(!session?.access_token)throw new Error('Iniciá sesión nuevamente');
-                  const response=await fetch('/api/sigma/precio?id='+encodeURIComponent(priceArticleId.trim()),{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
-                  const result=await readApiJson(response,'No se pudo consultar el precio');
-                  setPriceLookupResult(result);
-                  try {
-                    const policiesResult=await fetchPricePolicies(String(result.id),session.access_token,result.contextoPoliticas,false,setPricePolicyNote);
-                    setPricePolicies(policiesResult.politicasEncontradas||policiesResult.politicasDirectas||[]);
-                    setPricePolicyNote('Última actualización: '+new Date(policiesResult.cacheActualizada).toLocaleString('es-AR')+(policiesResult.desdeCache?' (caché). ':' (actualizada). ')+(policiesResult.nota||'')+(policiesResult.consultaCompleta?'':' Advertencia: consulta parcial, pueden faltar políticas.'));
-                  } catch(policyError){setPricePolicyNote('No se pudieron consultar políticas: '+(policyError instanceof Error?policyError.message:String(policyError)));}
-
-                } catch(error){setPriceLookupError(error instanceof Error?error.message:String(error));}
-                finally {setPriceLookupBusy(false);}
-              }}>{priceLookupBusy?'Consultando…':'Consultar precio de artículo · lista 4'}</button>
+              <button id="price-search-button" type="button" disabled={priceLookupBusy||!/^[0-9]{1,14}$/.test(priceArticleId.trim())} onClick={()=>void lookupPrice()}>
+                {priceLookupBusy?'Consultando…':'Consultar precio · lista 4'}
+              </button>
               {priceLookupResult&&<div style={{padding:16,border:'1px solid #dce3ec',borderRadius:12,background:'#fff'}}>
                 <div style={{fontSize:13,color:'#64748b'}}>Artículo {priceLookupResult.id} · Lista 4 · Unidad</div>
                 <h2 style={{fontSize:18,margin:'6px 0 14px'}}>{priceLookupResult.descripcion||'Artículo sin descripción'}</h2>
