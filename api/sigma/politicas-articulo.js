@@ -29,12 +29,12 @@ export default async function handler(req, res) {
     ['grupoCodigo', articulo.grupoCodigo, 'Grupo'],
     ['divisionCodigo', articulo.divisionCodigo, 'División']
   ];
-  const normalizar = value => String(value ?? '').trim().replace(/^0+(?=\\d)/, '');
+  const normalizar = value => String(value ?? '').trim().replace(/^0+(?=[0-9])/, '');
   const campos = dimensiones.map(([campo]) => campo);
   const hoy = new Date().toISOString().slice(0, 10);
   const fecha = value => {
     if (value == null || value === '') return null;
-    const match = String(value).match(/^(\\d{4}-\\d{2}-\\d{2})/);
+    const match = String(value).match(/^([0-9]{4}-[0-9]{2}-[0-9]{2})/);
     return match ? match[1] : null;
   };
   let complete = false;
