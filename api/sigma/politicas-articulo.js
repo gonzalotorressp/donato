@@ -33,10 +33,10 @@ export default async function handler(req, res) {
     const result = [];
   const dimensiones = [
     ['articuloId', id, 'Artículo'],
-    ['proveedorCodigo', articulo.proveedorCodigo, 'Proveedor'],
-    ['rubroCodigo', articulo.rubroCodigo, 'Rubro'],
-    ['grupoCodigo', articulo.grupoCodigo, 'Grupo'],
-    ['divisionCodigo', articulo.divisionCodigo, 'División']
+    ['articuloProveedorCodigo', articulo.proveedorCodigo, 'Proveedor', 'proveedorCodigo'],
+    ['articuloRubroCodigo', articulo.rubroCodigo, 'Rubro', 'rubroCodigo'],
+    ['articuloGrupoCodigo', articulo.grupoCodigo, 'Grupo', 'grupoCodigo'],
+    ['articuloDivisionCodigo', articulo.divisionCodigo, 'División', 'divisionCodigo']
   ];
   const normalizar = value => String(value ?? '').trim().replace(/^0+(?=[0-9])/, '');
   const hoy = argentinaToday();
@@ -48,7 +48,12 @@ export default async function handler(req, res) {
 
     const rows = snapshot.rows;
       for (const p of rows) {
-        const restricciones = dimensiones.filter(([campo]) => p[campo] != null && String(p[campo]).trim() !== '');
+        // Sigma uses articulo*Codigo in policies and *Codigo in the article master.
+        // Keep legacy aliases, checking every populated restriction if both exist.
+        const restricciones = dimensiones.flatMap(([campo, valor, nombre, alternativo]) =>
+          [campo, alternativo]
+            .filter(key => key && p[key] != null && String(p[key]).trim() !== '')
+            .map(key => [key, valor, nombre]));
         if (!restricciones.length) continue;
         if (restricciones.some(([campo, valor]) => valor == null || normalizar(p[campo]) !== normalizar(valor))) continue;
         if (p.clienteId != null || p.clienteGrupoCodigo != null || p.clienteRubroCodigo != null) continue;
@@ -56,7 +61,7 @@ export default async function handler(req, res) {
         if (p.listaPrecio != null && String(p.listaPrecio) !== '4') continue;
         if (p.empresa != null && String(p.empresa).padStart(4, '0') !== '0001') continue;
         if (p.sucursal != null && String(p.sucursal).padStart(4, '0') !== '0004') continue;
-        const alcance = restricciones.map(([campo, , nombre]) => nombre);
+        const alcance = [...new Set(restricciones.map(([campo, , nombre]) => nombre))];
         const desde = fecha(p.vigenciaDesde);
         const hasta = fecha(p.vigenciaHasta);
         const motivos = [];

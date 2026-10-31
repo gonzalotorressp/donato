@@ -15,11 +15,11 @@ const { sigmaRetryAfter } = await import('../server/policy-cache.js');
 const originalFetch = globalThis.fetch;
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status });
 
-function mock({ cached = false, busy = false, upstream = null, access = true, auth = true, batches } = {}) {
+function mock({ cached = false, busy = false, upstream = null, access = true, auth = true, batches, policies: suppliedPolicies, article } = {}) {
   const actions = [];
   const sigmaCalls = [];
   const articleCalls = [];
-  const policies = [
+  const policies = suppliedPolicies || [
     { id: 1, articuloId: 154, descuento: 10 },
     { id: 2, proveedorCodigo: '0009', descuento: 5, cantidadMinima: 6 },
     { id: 3, articuloId: 155, descuento: 50 },
@@ -42,7 +42,7 @@ function mock({ cached = false, busy = false, upstream = null, access = true, au
       return json({});
     }
     if (url.includes('ExportArticulosPrecios')) return json([{ id: 154, precio: 1611.57, moneda: 'ARS' }]);
-    if (url.includes('ExportArticulos')) { articleCalls.push(url); return json([{ id: 154, proveedorCodigo: 9, ivaPorcentual: 21 }]); }
+    if (url.includes('ExportArticulos')) { articleCalls.push(url); return json([article || { id: 154, proveedorCodigo: 9, ivaPorcentual: 21 }]); }
     if (url.includes('ExportPoliticasDescuento')) {
       sigmaCalls.push(url);
       if (upstream) return upstream();
@@ -83,6 +83,48 @@ test('shared cache is read without downloading policies again', async () => {
   const response = await request();
   assert.equal(response.body.desdeCache, true);
   assert.equal(state.sigmaCalls.length, 0);
+});
+
+test('real Sigma policy 10093 matches article 111 by group EA1 and provider 00004', async () => {
+  const policy = JSON.parse(readFileSync(new URL('./fixtures/policy10093.json', import.meta.url), 'utf8'));
+  const article = { id: 111, grupoCodigo: 'EA1', proveedorCodigo: '00004', ivaPorcentual: 21 };
+  const variants = [
+    policy,
+    { ...policy, id: 20001, articuloGrupoCodigo: 'EA2' },
+    { ...policy, id: 20002, articuloProveedorCodigo: '00005' },
+    { ...policy, id: 20003, clienteId: 99 },
+    { ...policy, id: 20004, listaPrecio: '5' },
+    { ...policy, id: 20005, sucursal: '0001' },
+  ];
+  for (const context of [undefined, signArticleContext(article)]) {
+    mock({ cached: true, policies: variants, article });
+    const response = await request({ id: '111', context });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.body.politicasEncontradas.map(p => p.id), [10093]);
+    const found = response.body.politicasEncontradas[0];
+    assert.deepEqual(found.alcance, ['Proveedor', 'Grupo']);
+    assert.equal(found.restricciones.articuloGrupoCodigo, 'EA1');
+    assert.equal(found.descuento, 5.82);
+    assert.equal(found.cantidadMinima, 8);
+    assert.equal(found.cantidadEnBultos, 'N');
+    assert.ok(found.motivosEvaluacion.includes('Requiere validar cantidad y bultos'));
+  }
+});
+
+test('Sigma prefixed provider/category/group/division fields all constrain matching', async () => {
+  const article = { id: 154, proveedorCodigo: '00009', rubroCodigo: 'D014', grupoCodigo: 'EA1', divisionCodigo: '0002' };
+  const policies = [
+    { id: 1, articuloProveedorCodigo: '9', descuento: 5 },
+    { id: 2, articuloRubroCodigo: 'D014', descuento: 5 },
+    { id: 3, articuloGrupoCodigo: 'EA1', descuento: 5 },
+    { id: 4, articuloDivisionCodigo: '2', descuento: 5 },
+    { id: 5, articuloGrupoCodigo: 'EA1', articuloRubroCodigo: 'wrong', descuento: 5 },
+    { id: 6, articuloGrupoCodigo: 'other', descuento: 5 },
+    { id: 7, articuloProveedorCodigo: '9', proveedorCodigo: '10', descuento: 5 },
+  ];
+  mock({ cached: true, policies });
+  const response = await request({ context: signArticleContext(article) });
+  assert.deepEqual(response.body.politicasEncontradas.map(p => p.id), [1, 2, 3, 4]);
 });
 
 test('forced refresh bypasses a fresh snapshot', async () => {
