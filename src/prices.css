@@ -27,6 +27,8 @@
 .price-workspace .price-status-button { flex: 0 0 54px; padding: 10px; }
 .price-label-section { padding: 14px; border: 1px solid #dce3ec; border-radius: 12px; display: grid; gap: 12px; }
 .price-label-section h2 { font-size: 18px; margin: 0; }
+.price-label-editor { display: grid; gap: 12px; min-width: 0; }
+.price-label-editor[hidden] { display: none; }
 .price-label-section label { display: grid; gap: 5px; font-size: 14px; }
 .price-label-section input:not([type="checkbox"]), .price-label-section select, .price-label-section textarea { width: 100%; min-width: 0; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; color: #0f172a; background: white; }
 .price-label-section textarea { min-height: 70px; resize: vertical; }

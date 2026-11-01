@@ -1811,6 +1811,8 @@ export default function App({ profile, onSignOut }: Props) {
                 {priceCheckStatus==='error'&&<label>Precio de lista observado (opcional)<input value={shelfPriceInput} disabled={priceSaving} onChange={event=>setShelfPriceInput(event.target.value)} inputMode="decimal" placeholder="Ej.: 1950,00" style={{display:'block',padding:10,marginTop:5}}/></label>}
                 {priceLookupResult.aviso&&<p style={{color:'#92400e'}}>{priceLookupResult.aviso}</p>}
               </div>}
+              {priceLookupResult&&<PriceLabelPrinter key={surveyId} article={priceLookupResult} policies={pricePolicies}
+                disabled={priceLookupBusy||priceSaving}/>}
               {priceLookupResult&&<div style={{padding:12,border:'1px solid #dce3ec',borderRadius:8}}>
                 <strong>Bonificaciones y políticas relacionadas con el artículo</strong>
                 <button type="button" disabled={priceLookupBusy||priceSaving} style={{marginTop:8}} onClick={async()=>{
@@ -1852,8 +1854,6 @@ export default function App({ profile, onSignOut }: Props) {
 
               {priceLookupResult&&<ExpiredOfferReport key={priceLookupResult.id} article={priceLookupResult}
                 value={offerDraft} onChange={setOfferDraft} disabled={priceSaving} onProcessingChange={setOfferPhotoProcessing}/>}
-              {priceLookupResult&&<PriceLabelPrinter key={surveyId} article={priceLookupResult} policies={pricePolicies}
-                disabled={priceLookupBusy||priceSaving}/>}
               {priceLookupResult&&<div style={{display:'grid',gap:10,padding:14,border:'1px solid #dce3ec',borderRadius:10}}>
                 <button type="button" className="primary-button price-save-button"
                   disabled={priceSaving||priceLookupBusy||offerPhotoProcessing||(!priceCheckStatus&&!Object.values(policyDrafts).some(draft=>draft.status)&&!offerDraft.enabled)}

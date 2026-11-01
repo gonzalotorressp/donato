@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Download, Printer } from 'lucide-react';
-import { buildPriceLabel, defaultRetailDetails, labelFor, printPriceLabel, readLabelSettings, rememberLabelSettings, type LabelArticle, type LabelPolicy, type LabelSettings } from '../lib/priceLabel';
+import { buildPriceLabel, defaultRetailDetails, labelFor, readLabelSettings, rememberLabelSettings, type LabelArticle, type LabelPolicy, type LabelSettings } from '../lib/priceLabel';
 import type { ContentUnit, RetailLabelDetails } from '../lib/retailLabelDetails';
 
 export function PriceLabelPrinter({ article, policies, disabled = false }: { article: LabelArticle; policies: LabelPolicy[]; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const editorId = useId();
   const [settings, setSettings] = useState(readLabelSettings);
   const [selection, setSelection] = useState('lista');
   const [confirmed, setConfirmed] = useState(false);
@@ -21,28 +24,30 @@ export function PriceLabelPrinter({ article, policies, disabled = false }: { art
   // Confirmation is tied to the exact policy content, including refreshed conditions.
   const fingerprint = JSON.stringify(policy);
   const [confirmedFingerprint, setConfirmedFingerprint] = useState('');
-  const ready = !disabled && detailsConfirmed && built.value != null && (!policy || (confirmed && confirmedFingerprint === fingerprint));
+  const ready = !disabled && !generating && detailsConfirmed && built.value != null && (!policy || (confirmed && confirmedFingerprint === fingerprint));
   function detail(field: keyof RetailLabelDetails, value: string) {
     setDetails(current => ({...current, [field]: value})); setDetailsConfirmed(false); setMessage('');
   }
   function setting(field: keyof LabelSettings, value: string) {
     setSettings(current => ({ ...current, [field]: Number(value) })); setMessage('');
   }
-  function output(mode: 'print' | 'pdf') {
+  async function output() {
     if (!ready || !built.value) return;
+    setGenerating(true);
+    setMessage('');
     try {
       rememberLabelSettings(settings);
-      if (mode === 'print') {
-        printPriceLabel(built.value.svg, settings);
-        setMessage('Se abrió el diálogo de impresión. Elegí la impresora y usá escala 100%, sin márgenes ni encabezados.');
-      } else {
-        built.value.doc.save(`donato-etiqueta-${article.id}.pdf`);
-        setMessage('PDF generado. Podés abrirlo desde la aplicación de tu impresora.');
-      }
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo preparar la impresión.'); }
+      await built.value.doc.save(`donato-etiqueta-${article.id}.pdf`, { returnPromise: true });
+      setMessage('PDF generado. Abrilo para imprimir en tamaño real, escala 100%.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo generar el PDF.'); }
+    finally { setGenerating(false); }
   }
   return <section className="price-label-section" aria-label="Imprimir etiqueta">
-    <h2>Imprimir etiqueta</h2>
+    <button type="button" disabled={disabled || generating} aria-expanded={open} aria-controls={editorId}
+      onClick={() => setOpen(current => !current)}><Printer size={18}/>Imprimir etiqueta</button>
+    <p className="price-label-help">Generá el PDF de la etiqueta para imprimir · {settings.width} × {settings.height} mm.</p>
+    <div id={editorId} className="price-label-editor" hidden={!open}>
+    <h2>Preparar etiqueta</h2>
     <p className="price-label-help">Etiqueta de góndola: EAN, descripción, precio final, precio sin IVA, unidades por caja y precio por kilo, litro o unidad.</p>
     {article.etiquetaAviso && <p role="status">{article.etiquetaAviso}</p>}
     <div className="price-label-details">
@@ -91,11 +96,12 @@ export function PriceLabelPrinter({ article, policies, disabled = false }: { art
     {built.value && <figure className="price-label-preview"><img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(built.value.svg)}`} alt={`Vista previa de etiqueta del artículo ${article.id}`}/><figcaption>{settings.width} × {settings.height} mm · {settings.copies} {settings.copies === 1 ? 'copia' : 'copias'}</figcaption></figure>}
     {built.error && <p role="alert">{built.error}</p>}
     <div className="price-label-actions">
-      <button type="button" disabled={!ready} onClick={() => output('print')}><Printer size={18}/>Imprimir etiqueta</button>
-      <button type="button" disabled={!ready} onClick={() => output('pdf')}><Download size={18}/>Descargar PDF</button>
+      <button type="button" disabled={!ready} onClick={() => void output()}><Download size={18}/>{generating ? 'Generando PDF…' : 'Generar PDF para imprimir'}</button>
     </div>
-    <p className="price-label-help">Usá el tamaño real de tu etiqueta y escala 100%. Para imprimir desde el teléfono, la impresora debe estar configurada en su servicio de impresión. Si usa una app propia, descargá el PDF y abrilo allí.</p>
+    {!ready && !disabled && !generating && <p className="price-label-help">Completá los datos faltantes y marcá las verificaciones para habilitar el PDF.</p>}
+    <p className="price-label-help">Abrí el PDF desde el teléfono o la aplicación de la impresora. Elegí tamaño real y escala 100%, sin ajustar a la página.</p>
     {message && <p role="status">{message}</p>}
+    </div>
   </section>;
 }
 

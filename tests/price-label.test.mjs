@@ -79,14 +79,16 @@ test('system printing contains only labels with no app UI; popup blocking is act
   } finally { delete globalThis.window; }
 });
 
-test('printer section starts with list price, editable dimensions and matching buttons', () => {
+test('print action opens PDF preparation with editable shelf data and required verification', () => {
   const html = renderToStaticMarkup(createElement(Printer, {article,policies:[policy]}));
-  for (const text of ['Imprimir etiqueta', 'Descargar PDF', 'Ancho (mm)', 'Alto (mm)', 'Copias', '10093', 'EAN de la unidad', 'Contenido de la unidad', 'Unidades por caja', 'Verifiqué el EAN']) {
+  for (const text of ['Imprimir etiqueta', 'Generar PDF para imprimir', 'Ancho (mm)', 'Alto (mm)', 'Copias', '10093', 'EAN de la unidad', 'Contenido de la unidad', 'Unidades por caja', 'Verifiqué el EAN']) {
     assert.ok(html.includes(text));
   }
   assert.ok(html.includes('Vista previa de etiqueta del artículo 111'));
   assert.ok(!html.includes('Guardar control'));
-  assert.equal((html.match(/<button[^>]*disabled=""/g) || []).length, 2);
+  assert.ok(html.includes('aria-expanded="false"'));
+  assert.ok(/class="price-label-editor" hidden=""/.test(html));
+  assert.equal((html.match(/<button[^>]*disabled=""/g) || []).length, 1);
 });
 
 test('reference price uses the sale contents, with ml/g conversion and independent case quantities', () => {
